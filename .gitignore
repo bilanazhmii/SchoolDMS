@@ -1,0 +1,53 @@
+# === Dependencies ===
+node_modules/
+
+# === Build artifacts ===
+.next/
+dist/
+build/
+*.tsbuildinfo
+/coverage
+/.nyc_output
+
+# === Sync-client publish (exe besar >100MB — GitHub tolak) ===
+sync-client/DocumentSyncClient/publish/
+**/bin/
+**/obj/
+
+# === Runtime storage (fail lokal backend) ===
+backend/storage/
+*.sqlite
+*.sqlite-journal
+
+# === Env — jangan sekali-kali commit kredential ===
+.env
+.env.*
+!.env.example
+
+# === Logs ===
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# === OS ===
+.DS_Store
+Thumbs.db
+
+# === IDE / editor ===
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# === Agen config lokal (tidak perlu dalam repo) ===
+.agents/
+.claude/
+.windsurf/
+skills-lock.json
+
+# === Temp ===
+.temp
+.tmp

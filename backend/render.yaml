@@ -1,0 +1,40 @@
+# Render Blueprint — SchoolDMS Backend (NestJS + Prisma)
+# Guna "New Blueprint" di Render (Blueprints → New Blueprint Instance) dan pautkan repo ini.
+# Boleh juga deploy manual: New → Web Service, root = /backend.
+services:
+  - type: web
+    name: schooldms-backend
+    runtime: node
+    rootDir: backend
+    plan: free
+    buildCommand: npm install && npx prisma generate && npm run build
+    startCommand: npx prisma migrate deploy && node dist/src/main.js
+    healthCheckPath: /health
+    envVars:
+      # --- Wajib ---
+      - key: DATABASE_URL
+        sync: false # set di panel Render: gunakan Supabase Postgres connection string + ?sslmode=require
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # --- Pilihan ---
+      # Domain Vercel web (contoh): https://schooldms.vercel.app
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # Guna Supabase Storage supaya fail tahan lama (cakera free Render ephemeral)
+      - key: STORAGE_DRIVER
+        value: supabase
+      - key: MAX_FILE_SIZE
+        value: "50" # MB
+      - key: PORT
+        value: "10000"
+      # --- Google Drive (pilihan; tanpanya ciri Drive dilumpuhkan) ---
+      - key: GOOGLE_DRIVE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_DRIVE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_DRIVE_REDIRECT_URI
+        sync: false
+      - key: DRIVE_TOKEN_ENCRYPTION_KEY
+        sync: false
