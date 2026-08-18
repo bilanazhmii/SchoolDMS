@@ -96,3 +96,23 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+
+---
+
+## Deploy di Railway (percubaan/free tier)
+
+Railway tiada free tier kekal (hanya kredit percubaan). Untuk deploy:
+
+1. **New Project** di railway.com → **Deploy from GitHub repo** → pilih `SchoolDMS`.
+2. **Root directory**: `backend` (Railway set ini di Settings → Source).
+3. Railway auto-detect Dockerfile → guna `railway.Dockerfile` + `railway.json` (sudah disediakan).
+4. **Add PostgreSQL** (Railway DB) — atau set `DATABASE_URL` sendiri (Supabase/Neon).
+5. **Variables**:
+   - `DATABASE_URL` (dari Railway Postgres: `${{Postgres.DATABASE_URL}}` atau string Supabase + `?sslmode=require`)
+   - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+   - `ALLOWED_ORIGINS` → `http://localhost:3000,https://<domain-vercel>`
+   - `STORAGE_DRIVER=supabase`, `MAX_FILE_SIZE=50`
+6. **Deploy**. Start command menjalankan `prisma migrate deploy` dulu, kemudian `npm run start:prod`.
+7. **Networking → Generate Domain** → dapat URL `https://<app>.up.railway.app` → set sebagai `NEXT_PUBLIC_API_URL` di Vercel + `ServerUrl` di sync-client.
+
+> Nota: jika migrasi gagal dengan ralat `postgres.railway.internal not available during build`, pastikan migrasi berada dalam **start command** (sudah — `CMD` dalam Dockerfile), bukan build.

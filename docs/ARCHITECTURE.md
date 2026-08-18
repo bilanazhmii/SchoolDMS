@@ -157,16 +157,13 @@ Vercel (web, HTTPS)  ── NEXT_PUBLIC_API_URL ──▶  Render free (NestJS) 
 sync-client (Windows)  ── ServerUrl ──────────────────┘
 ```
 
-### A. Backend → Render free
-1. Pautkan repo di Render: **New → Blueprint** (gune `backend/render.yaml`) atau **New → Web Service** (root `backend`).
-2. Set Environment Variables (dashboard Render):
-   - `DATABASE_URL` → connection string Supabase Postgres (Dashboard → Project → Connect) + `?sslmode=require`
-   - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
-   - `ALLOWED_ORIGINS` → `http://localhost:3000,https://<domain-vercel>`
-   - `STORAGE_DRIVER=supabase` (fail tahan lama; cakera free Render ephemeral)
-   - `MAX_FILE_SIZE=50` (MB)
-3. Deploy. Start command (`render.yaml`) menjalankan `prisma migrate deploy` sebelum boot.
-4. Nota free tier: Render tidur selepas ~15 min tanpa request (request pertama lambat sedikit), RAM 512MB.
+### A. Backend → Railway (pilihan tanpa kad kredit langsung; kredit percubaan)
+1. railway.com → **New Project** → **Deploy from GitHub repo** → pilih `SchoolDMS` → root directory `backend`.
+2. Railway auto-guna `backend/railway.Dockerfile` + `backend/railway.json` (sedia).
+3. **Add PostgreSQL** (Railway DB) — atau `DATABASE_URL` dari Supabase/Neon.
+4. Set Variables: `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ALLOWED_ORIGINS`, `STORAGE_DRIVER=supabase`, `MAX_FILE_SIZE`.
+5. **Networking → Generate Domain** → URL `https://<app>.up.railway.app`.
+6. Nota: kredit percubaan berhad; migrasi dijalankan dalam start command (bukan build) — `railway.Dockerfile` sudah betul.
 
 ### B. Web → Vercel
 1. New Project → pautkan repo → Root directory `web`.
