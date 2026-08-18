@@ -1,0 +1,17 @@
+# Docker context = root repo. Hanya backend/ diperlukan untuk build Railway.
+node_modules
+**/node_modules
+**/bin
+**/obj
+**/dist
+**/.next
+**/publish
+**/storage
+.env
+.env.*
+!.env.example
+.git
+docs
+web
+sync-client
+*.log

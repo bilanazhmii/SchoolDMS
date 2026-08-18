@@ -77,3 +77,19 @@ Jika anda setuju **Runsite**, saya boleh:
 1. Kemas kini `docs/ARCHITECTURE.md` (seksyen Deploy → Runsite).
 2. Sediakan `runsite.yaml`/nota deploy Runsite untuk backend.
 3. Beritahu langkah tepat di dashboard Runsite.
+
+---
+
+## Penyelesaian PASTI untuk Railway (Dockerfile di root — tiada kebergantungan Root Directory)
+
+Jika Root Directory `backend` tidak berkesan di Railway anda, fail ini (sudah ada di repo):
+
+- `railway.json` (root) → builder DOCKERFILE + start command
+- `railway.Dockerfile` (root) → build dari `backend/`
+- `.dockerignore` (root) → tolak `web/`, `sync-client/`, `.env`, artifak
+
+Cara:
+1. Push (sudah).
+2. Railway → Settings → **Config-as-code → Add File Path** → `railway.json`
+3. **Deploy → Redeploy**.
+4. Selepas hijau: Network → Generate Domain → set `NEXT_PUBLIC_API_URL` di Vercel.
