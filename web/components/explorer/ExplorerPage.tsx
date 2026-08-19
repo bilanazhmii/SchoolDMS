@@ -69,12 +69,12 @@ const ExplorerInner: React.FC = () => {
   return (
     <div className="grid grid-cols-12 gap-0">
       {/* Folder tree */}
-      <aside className="hidden sm:block sm:col-span-2 border-r border-border bg-card">
+      <aside className="hidden sm:block sm:col-span-3 lg:col-span-2 border-r border-border bg-card">
         <FolderTree />
       </aside>
 
       {/* Main content */}
-      <main className="col-span-12 sm:col-span-10 lg:col-span-7">
+      <main className="col-span-12 sm:col-span-9 lg:col-span-8">
         <div className="border-b border-border px-4 py-3">
           <Breadcrumb
             items={[
@@ -100,7 +100,7 @@ const ExplorerInner: React.FC = () => {
       </main>
 
       {/* Right preview/metadata panels */}
-      <aside className="hidden lg:block lg:col-span-3 border-l border-border bg-card">
+      <aside className="hidden lg:block lg:col-span-2 xl:col-span-3 border-l border-border bg-card">
         <div className="p-4 space-y-4 overflow-y-auto">
           <div className="rounded-lg border border-border bg-card p-4">
             <FilePreviewPanel file={previewFile} />
@@ -137,7 +137,7 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
 function LoadingState({ view }: { view: string }) {
   if (view === 'grid') {
     return (
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 p-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3 p-4">
         {Array.from({ length: 8 }).map((_, i) => (
           <div key={i} className="rounded-lg border border-border bg-card p-3 space-y-2">
             <Skeleton className="h-14 w-full rounded" />

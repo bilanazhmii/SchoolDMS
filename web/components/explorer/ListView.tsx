@@ -45,7 +45,7 @@ const ListView: FC<{
   }
 
   return (
-    <div className="p-2">
+    <div className="p-3">
       <table className="w-full table-auto">
         <thead className="text-left text-2xs text-foreground-faint uppercase tracking-wider">
           <tr className="border-b border-border">
