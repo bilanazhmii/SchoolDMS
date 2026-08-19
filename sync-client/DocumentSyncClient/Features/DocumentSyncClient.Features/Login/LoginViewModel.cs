@@ -1,5 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Runtime.Versioning;
+using Microsoft.Win32;
 using CommunityToolkit.Mvvm.Input;
 using DocumentSyncClient.Core.DTO;
 using DocumentSyncClient.Core.Interfaces;
@@ -19,6 +21,10 @@ public sealed class LoginViewModel : INotifyPropertyChanged
     private string _status = "Please sign in to continue.";
     private bool _isBusy;
     private bool _rememberLogin;
+    private string _serverUrl = "https://schooldms-production.up.railway.app";
+    private string _syncFolder = string.Empty;
+    private bool _autoSync = true;
+    private bool _autoStartWindows;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LoginViewModel"/> class.
@@ -32,12 +38,22 @@ public sealed class LoginViewModel : INotifyPropertyChanged
         _authenticationStore = authenticationStore;
         _settingsService = settingsService;
         SignInCommand = new AsyncRelayCommand(SignInAsync);
+        BrowseFolderCommand = new RelayCommand(BrowseFolder);
+        SaveSettingsCommand = new AsyncRelayCommand(SaveSettingsAsync);
+        _ = LoadSettingsAsync();
     }
 
     /// <summary>
     /// Gets the sign-in command.
     /// </summary>
     public IAsyncRelayCommand SignInCommand { get; }
+    public IRelayCommand BrowseFolderCommand { get; }
+    public IAsyncRelayCommand SaveSettingsCommand { get; }
+    public Action? FolderPicker { get; set; }
+    public string ServerUrl { get => _serverUrl; set { if (_serverUrl == value) return; _serverUrl = value; OnPropertyChanged(); } }
+    public string SyncFolder { get => _syncFolder; set { if (_syncFolder == value) return; _syncFolder = value; OnPropertyChanged(); } }
+    public bool AutoSync { get => _autoSync; set { if (_autoSync == value) return; _autoSync = value; OnPropertyChanged(); } }
+    public bool AutoStartWindows { get => _autoStartWindows; set { if (_autoStartWindows == value) return; _autoStartWindows = value; OnPropertyChanged(); } }
 
     /// <summary>
     /// Gets or sets the email address.
@@ -154,6 +170,49 @@ public sealed class LoginViewModel : INotifyPropertyChanged
         {
             IsBusy = false;
         }
+    }
+
+    private async Task LoadSettingsAsync()
+    {
+        var settings = await _settingsService.LoadAsync();
+        ServerUrl = string.IsNullOrWhiteSpace(settings.ServerUrl) ? ServerUrl : settings.ServerUrl;
+        SyncFolder = settings.SyncFolder;
+        AutoSync = settings.AutoSync;
+        AutoStartWindows = settings.AutoStartWindows;
+        RememberLogin = settings.RememberLogin;
+    }
+
+    private void BrowseFolder()
+    {
+        FolderPicker?.Invoke();
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        var settings = await _settingsService.LoadAsync();
+        settings.ServerUrl = ServerUrl.Trim().TrimEnd('/');
+        settings.SyncFolder = SyncFolder.Trim();
+        settings.AutoSync = AutoSync;
+        settings.AutoStartWindows = AutoStartWindows;
+        settings.RememberLogin = RememberLogin;
+        settings.AutoLogin = RememberLogin;
+        if (!string.IsNullOrWhiteSpace(settings.SyncFolder))
+            Directory.CreateDirectory(settings.SyncFolder);
+        await _settingsService.SaveAsync(settings);
+#pragma warning disable CA1416
+        ConfigureStartup(AutoStartWindows);
+#pragma warning restore CA1416
+        Status = "Settings saved. Restart the app to apply folder monitoring changes.";
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void ConfigureStartup(bool enabled)
+    {
+        using var key = Registry.CurrentUser.OpenSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Run", writable: true)
+            ?? Registry.CurrentUser.CreateSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
+        const string name = "DocumentSyncClient";
+        if (enabled) key?.SetValue(name, $"\"{Environment.ProcessPath}\"");
+        else key?.DeleteValue(name, false);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

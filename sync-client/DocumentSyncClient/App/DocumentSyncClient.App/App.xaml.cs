@@ -25,6 +25,14 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        DispatcherUnhandledException += (_, args) =>
+        {
+            MessageBox.Show($"The sync client recovered from an error:\n\n{args.Exception.Message}", "DocumentSyncClient", MessageBoxButton.OK, MessageBoxImage.Warning);
+            args.Handled = true;
+        };
+
+        try
+        {
         _host = Host.CreateDefaultBuilder()
             .ConfigureServices((context, services) =>
             {
@@ -56,6 +64,13 @@ public partial class App : Application
 
         var mainWindow = _host.Services.GetRequiredService<MainWindow>();
         mainWindow.Show();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"The sync client could not start its background services.\n\n{ex.Message}\n\nYou can still open the app and correct settings.", "DocumentSyncClient", MessageBoxButton.OK, MessageBoxImage.Warning);
+            var mainWindow = _host?.Services.GetService<MainWindow>();
+            mainWindow?.Show();
+        }
     }
 
     /// <inheritdoc />

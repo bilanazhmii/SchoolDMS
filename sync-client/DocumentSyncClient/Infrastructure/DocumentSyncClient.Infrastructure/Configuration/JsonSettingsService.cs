@@ -26,7 +26,9 @@ public sealed class JsonSettingsService : IAppSettingsService
     {
         if (!File.Exists(_filePath))
         {
-            return new AppSettings();
+            var defaults = new AppSettings();
+            await SaveAsync(defaults, cancellationToken);
+            return defaults;
         }
 
         var json = await File.ReadAllTextAsync(_filePath, cancellationToken);

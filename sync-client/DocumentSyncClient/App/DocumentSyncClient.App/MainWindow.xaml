@@ -1,20 +1,30 @@
-﻿<Window x:Class="DocumentSyncClient.App.MainWindow"
+<Window x:Class="DocumentSyncClient.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:DocumentSyncClient.App"
-        mc:Ignorable="d"
-        Title="Document Sync Client" Height="520" Width="760">
-    <Grid Margin="24">
-        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Width="360">
-            <TextBlock Text="Document Sync Client" FontSize="24" FontWeight="SemiBold" Margin="0,0,0,12"/>
-            <TextBlock Text="{Binding Status}" Margin="0,0,0,16" TextWrapping="Wrap"/>
-            <TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" />
-            <TextBox Text="{Binding Password, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" />
-            <CheckBox IsChecked="{Binding RememberLogin}" Content="Remember me" Margin="0,0,0,16"/>
-            <Button Content="Sign In" Command="{Binding SignInCommand}" IsDefault="True" Height="32"/>
-            <ProgressBar IsIndeterminate="{Binding IsBusy}" Height="6" Margin="0,12,0,0"/>
-        </StackPanel>
+        Title="DocumentSyncClient" Height="620" Width="920" MinHeight="560" MinWidth="760"
+        WindowStartupLocation="CenterScreen" Background="#F6F8FB">
+    <Window.Resources>
+        <Style TargetType="TextBlock"><Setter Property="Foreground" Value="#243247"/></Style>
+        <Style TargetType="TextBox"><Setter Property="Padding" Value="10,8"/><Setter Property="Margin" Value="0,5,0,12"/><Setter Property="BorderBrush" Value="#D7DFEA"/><Setter Property="BorderThickness" Value="1"/></Style>
+        <Style TargetType="PasswordBox"><Setter Property="Padding" Value="10,8"/><Setter Property="Margin" Value="0,5,0,12"/><Setter Property="BorderBrush" Value="#D7DFEA"/><Setter Property="BorderThickness" Value="1"/></Style>
+        <Style TargetType="Button"><Setter Property="Padding" Value="14,9"/><Setter Property="Margin" Value="0,5,8,5"/><Setter Property="FontWeight" Value="SemiBold"/></Style>
+    </Window.Resources>
+    <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="300"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <Border Grid.Column="0" Background="#173B67" Padding="34"><StackPanel VerticalAlignment="Center">
+            <TextBlock Text="SchoolDMS" Foreground="White" FontSize="28" FontWeight="Bold"/><TextBlock Text="Desktop Sync" Foreground="#BFD7F5" FontSize="16" Margin="0,8,0,30"/>
+            <TextBlock Text="Keep your folders synchronized with your SchoolDMS workspace." Foreground="#E7F0FC" FontSize="15" TextWrapping="Wrap"/><TextBlock Text="Secure queue • Automatic retry • Windows startup" Foreground="#BFD7F5" FontSize="12" Margin="0,30,0,0" TextWrapping="Wrap"/>
+        </StackPanel></Border>
+        <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto"><StackPanel Margin="42" MaxWidth="520">
+            <TextBlock Text="Connect your desktop" FontSize="26" FontWeight="Bold" Margin="0,0,0,5"/><TextBlock Text="Sign in, choose a folder, and let the client sync in the background." Foreground="#65758B" Margin="0,0,0,24"/>
+            <TextBlock Text="Account" FontSize="13" FontWeight="SemiBold"/><TextBlock Text="Email" FontSize="12" Foreground="#65758B"/><TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}"/>
+            <TextBlock Text="Password" FontSize="12" Foreground="#65758B"/><PasswordBox x:Name="PasswordInput" PasswordChanged="PasswordInput_OnPasswordChanged"/>
+            <CheckBox IsChecked="{Binding RememberLogin}" Content="Remember me and sign in automatically" Margin="0,0,0,12"/>
+            <TextBlock Text="Connection" FontSize="13" FontWeight="SemiBold" Margin="0,10,0,0"/><TextBlock Text="Server URL" FontSize="12" Foreground="#65758B"/><TextBox Text="{Binding ServerUrl, UpdateSourceTrigger=PropertyChanged}"/>
+            <TextBlock Text="Sync folder" FontSize="12" Foreground="#65758B"/><DockPanel Margin="0,5,0,12"><TextBox Text="{Binding SyncFolder, UpdateSourceTrigger=PropertyChanged}" Margin="0"/><Button DockPanel.Dock="Right" Content="Browse…" Command="{Binding BrowseFolderCommand}" Margin="8,0,0,0"/></DockPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,10"><CheckBox IsChecked="{Binding AutoSync}" Content="Sync changes automatically" Margin="0,0,20,0"/><CheckBox IsChecked="{Binding AutoStartWindows}" Content="Start with Windows"/></StackPanel>
+            <StackPanel Orientation="Horizontal"><Button Content="Sign in" Width="120" Background="#1E73BE" Foreground="White" Command="{Binding SignInCommand}"/><Button Content="Save settings" Command="{Binding SaveSettingsCommand}"/></StackPanel>
+            <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Foreground="#65758B" Margin="0,18,0,0"/><ProgressBar IsIndeterminate="{Binding IsBusy}" Height="5" Margin="0,12,0,0"/>
+        </StackPanel></ScrollViewer>
     </Grid>
 </Window>
