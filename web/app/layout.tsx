@@ -1,5 +1,6 @@
 import '../styles/globals.css';
 
+import { Analytics } from '@vercel/analytics/next';
 import { ReactNode } from 'react';
 
 import Providers from '../providers/providers';
@@ -14,6 +15,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" className="dark" suppressHydrationWarning>
       <body>
         <Providers>{children}</Providers>
+        <Analytics />
       </body>
     </html>
   );
