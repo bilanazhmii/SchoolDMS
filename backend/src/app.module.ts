@@ -11,6 +11,7 @@ import { DriveModule } from './drive/drive.module';
 import { ExplorerModule } from './explorer/explorer.module';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { SharingModule } from './sharing/sharing.module';
 import { StorageModule } from './storage/storage.module';
 
 @Module({
@@ -27,6 +28,8 @@ import { StorageModule } from './storage/storage.module';
     StorageModule,
     // Explorer features (folders/files)
     ExplorerModule,
+    // Public share links & guest view
+    SharingModule,
   ],
   controllers: [AppController, AuthExamplesController],
   providers: [AppService],

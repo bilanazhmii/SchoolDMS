@@ -1,0 +1,59 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
+import type { Response } from 'express';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+
+import type { AuthenticatedProfile } from '../auth/auth.types';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import type { CreateShareLinkDto } from './sharing.service';
+import { SharingService } from './sharing.service';
+
+@ApiTags('sharing')
+@Controller()
+export class SharingController {
+  constructor(private readonly sharing: SharingService) {}
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Post('share-links')
+  create(
+    @CurrentUser() user: AuthenticatedProfile,
+    @Body() dto: CreateShareLinkDto,
+  ) {
+    return { success: true, data: this.sharing.create(user.id, dto) };
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('share-links')
+  list(@CurrentUser() user: AuthenticatedProfile) {
+    return { success: true, data: this.sharing.listForProfile(user.id) };
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Delete('share-links/:id')
+  remove(@CurrentUser() user: AuthenticatedProfile, @Param('id') id: string) {
+    return { success: true, data: this.sharing.remove(user.id, id) };
+  }
+
+  // Public endpoints — intentionally WITHOUT JwtAuthGuard.
+  @Get('share/:token')
+  getPublic(@Param('token') token: string) {
+    return { success: true, data: this.sharing.getPublic(token) };
+  }
+
+  @Get('share/:token/download')
+  downloadPublic(@Param('token') token: string, @Res() res: Response) {
+    return this.sharing.downloadPublic(token, res);
+  }
+}

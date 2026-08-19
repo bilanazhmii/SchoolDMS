@@ -4,6 +4,7 @@ import { google } from 'googleapis';
 
 import {
   Injectable,
+  Inject,
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -11,6 +12,8 @@ import { ConfigService } from '@nestjs/config';
 
 import type { AuthenticatedProfile } from '../auth/auth.types';
 import { PrismaService } from '../prisma/prisma.service';
+import type { IStorageService } from '../storage/storage.service.interface';
+import { STORAGE_SERVICE_TOKEN } from '../storage/storage.module';
 
 const ALGORITHM = 'aes-256-gcm';
 
@@ -25,6 +28,7 @@ export class DriveService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    @Inject(STORAGE_SERVICE_TOKEN) private readonly storage: IStorageService,
   ) {
     this.clientId = this.config.get<string>('GOOGLE_DRIVE_CLIENT_ID') ?? '';
     this.clientSecret =
@@ -247,6 +251,145 @@ export class DriveService {
     })).data.id;
     if (folderId && account) await this.prisma.driveAccount.update({ where: { id: account.id }, data: { rootFolderId: folderId } });
     return folderId ?? null;
+  }
+
+  /**
+   * Pull sync: Google Drive -> backend.
+   * Lists files in the user's SchoolDMS Drive folder, creates missing File records
+   * (with content stored in backend storage) and, when the Drive file is newer,
+   * adds a new version (last-write-wins conflict policy).
+   */
+  async pullSync(profileId: string) {
+    const token = await this.getAccessTokenForProfile(profileId);
+    if (!token) return { connected: false };
+
+    const rootFolderId = await this.ensureRootFolder(profileId, token);
+    if (!rootFolderId) return { connected: true, created: 0, updated: 0, skipped: 0 };
+
+    const oauth2 = this.createOAuthClient();
+    oauth2.setCredentials({ access_token: token });
+    const drive = google.drive({ version: 'v3', auth: oauth2 });
+
+    const res = await drive.files.list({
+      q: `'${rootFolderId}' in parents and trashed = false`,
+      fields: 'files(id, name, mimeType, size, modifiedTime, webViewLink)',
+      pageSize: 200,
+    });
+
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
+
+    for (const f of res.data.files ?? []) {
+      if (!f.id || !f.name) continue;
+      try {
+        const existing = await this.prisma.file.findFirst({
+          where: { ownerId: profileId, googleDriveFileId: f.id },
+        });
+
+        if (!existing) {
+          const buffer = await this.downloadDriveFile(drive, f.id);
+          if (!buffer) {
+            skipped++;
+            continue;
+          }
+          const mimeType = f.mimeType ?? 'application/octet-stream';
+          const size = BigInt(Number(f.size ?? buffer.length));
+          const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+
+          const file = await this.prisma.file.create({
+            data: {
+              name: f.name,
+              ownerId: profileId,
+              mimeType,
+              size,
+              relativePath: `/${f.name}`,
+              googleDriveFileId: f.id,
+              syncStatus: 'SYNCED',
+              lastSyncedAt: new Date(),
+            },
+          });
+
+          const storagePath = `files/${file.id}/v1`;
+          await this.storage.upload(buffer, storagePath, mimeType);
+          await this.prisma.fileVersion.create({
+            data: {
+              fileId: file.id,
+              versionNumber: 1,
+              size,
+              mimeType,
+              storagePath,
+              sha256,
+              syncStatus: 'SYNCED',
+              lastSyncedAt: new Date(),
+            },
+          });
+          created++;
+          continue;
+        }
+
+        const driveModified = f.modifiedTime ? new Date(f.modifiedTime) : new Date(0);
+        if (driveModified <= existing.updatedAt) {
+          skipped++;
+          continue;
+        }
+
+        // Last-write-wins: Drive file is newer -> new version in backend.
+        const buffer = await this.downloadDriveFile(drive, f.id);
+        if (!buffer) {
+          skipped++;
+          continue;
+        }
+        const mimeType = f.mimeType ?? existing.mimeType;
+        const size = BigInt(Number(f.size ?? buffer.length));
+        const versionNumber = existing.versionNumber + 1;
+        const storagePath = `files/${existing.id}/v${versionNumber}`;
+        const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+
+        await this.storage.upload(buffer, storagePath, mimeType);
+        await this.prisma.fileVersion.create({
+          data: {
+            fileId: existing.id,
+            versionNumber,
+            size,
+            mimeType,
+            storagePath,
+            sha256,
+            syncStatus: 'SYNCED',
+            lastSyncedAt: new Date(),
+          },
+        });
+        await this.prisma.file.update({
+          where: { id: existing.id },
+          data: {
+            versionNumber,
+            size,
+            syncStatus: 'SYNCED',
+            lastSyncedAt: new Date(),
+          },
+        });
+        updated++;
+      } catch (e) {
+        this.logger.warn(`pullSync skipped ${f.name}: ${(e as Error).message}`);
+        skipped++;
+      }
+    }
+
+    this.logger.log(`Drive pullSync for ${profileId}: ${created} created, ${updated} updated, ${skipped} skipped`);
+    return { connected: true, created, updated, skipped };
+  }
+
+  private async downloadDriveFile(drive: ReturnType<typeof google.drive>, fileId: string): Promise<Buffer | null> {
+    try {
+      const res = await drive.files.get(
+        { fileId, alt: 'media' },
+        { responseType: 'arraybuffer' },
+      );
+      return Buffer.from(res.data as ArrayBuffer);
+    } catch (e) {
+      this.logger.warn(`downloadDriveFile failed for ${fileId}: ${(e as Error).message}`);
+      return null;
+    }
   }
 
   async verifyConnection(profileId: string) {

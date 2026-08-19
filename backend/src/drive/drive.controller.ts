@@ -37,6 +37,13 @@ export class DriveController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get('sync')
+  @ApiOkResponse({ description: 'Pull files from Google Drive into the backend' })
+  async sync(@CurrentUser() user: AuthenticatedProfile) {
+    return this.driveService.pullSync(user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get('status')
   @ApiOkResponse({ description: 'Verify Drive connection for current user' })
   async status(@CurrentUser() user: AuthenticatedProfile) {
