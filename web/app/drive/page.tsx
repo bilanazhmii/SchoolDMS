@@ -5,7 +5,6 @@ import { useQuery } from '@tanstack/react-query';
 import { Cloud, RefreshCw, Unplug } from 'lucide-react';
 
 import DashboardShell from '../../components/dashboard-shell';
-import api from '../../lib/axios';
 
 function unwrap<T>(body: unknown): T {
   if (
@@ -27,8 +26,9 @@ export default function DrivePage() {
   }>({
     queryKey: ['drive', 'status'],
     queryFn: async () => {
-      const { data } = await api.get('/drive/status');
-      return unwrap(data);
+      const response = await fetch('/api/drive/status', { credentials: 'include' });
+      if (!response.ok) throw new Error(await response.text());
+      return unwrap(await response.json());
     },
     staleTime: 30_000,
   });
@@ -63,8 +63,7 @@ export default function DrivePage() {
             {connected ? (
               <button
                 onClick={() => {
-                  api
-                    .delete('/drive/disconnect')
+                  fetch('/api/drive/disconnect', { method: 'DELETE', credentials: 'include' })
                     .then(() => refetch())
                     .catch(() => {});
                 }}
