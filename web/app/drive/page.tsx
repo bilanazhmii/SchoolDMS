@@ -74,13 +74,14 @@ export default function DrivePage() {
                 Disconnect
               </button>
             ) : (
-              <a
-                href="/api/drive/connect"
+              <button
+                type="button"
+                onClick={() => window.location.assign('/api/drive/connect')}
                 className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover transition-colors"
               >
                 <Cloud className="h-4 w-4" />
                 Connect
-              </a>
+              </button>
             )}
           </div>
 

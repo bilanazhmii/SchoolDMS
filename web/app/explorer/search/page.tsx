@@ -16,7 +16,7 @@ import Link from 'next/link';
 
 function SearchResults() {
   const params = useSearchParams();
-  const q = params.get('q') ?? '';
+  const q = params?.get('q') ?? '';
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['explorer', 'search', q],
