@@ -12,6 +12,7 @@ export interface EnvironmentVariables {
   GOOGLE_DRIVE_CLIENT_SECRET?: string;
   GOOGLE_DRIVE_REDIRECT_URI?: string;
   DRIVE_TOKEN_ENCRYPTION_KEY?: string;
+  WEB_APP_URL?: string;
 }
 
 export function validateEnv(
@@ -56,6 +57,10 @@ export function validateEnv(
     DRIVE_TOKEN_ENCRYPTION_KEY:
       typeof config.DRIVE_TOKEN_ENCRYPTION_KEY === 'string'
         ? config.DRIVE_TOKEN_ENCRYPTION_KEY.trim()
+        : undefined,
+    WEB_APP_URL:
+      typeof config.WEB_APP_URL === 'string'
+        ? config.WEB_APP_URL.trim()
         : undefined,
   };
 

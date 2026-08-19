@@ -23,10 +23,17 @@ export class DriveController {
 
   @Get('callback')
   @ApiOkResponse({ description: 'OAuth2 callback for Google Drive' })
-  async callback(@Query('code') code: string, @Query('state') state: string) {
+  async callback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Res() res: Response,
+  ) {
     if (!code || !state)
-      return { success: false, message: 'Missing code or state' };
-    return this.driveService.handleOAuthCallback(code, state);
+      return res.status(400).json({ success: false, message: 'Missing code or state' });
+
+    await this.driveService.handleOAuthCallback(code, state);
+    const webAppUrl = process.env.WEB_APP_URL ?? 'https://school-dms.vercel.app';
+    return res.redirect(`${webAppUrl.replace(/\/$/, '')}/drive?drive=connected`);
   }
 
   @UseGuards(JwtAuthGuard)
