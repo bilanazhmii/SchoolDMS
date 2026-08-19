@@ -69,6 +69,33 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
         await _queue.EnqueueAsync(job, cancellationToken);
     }
 
+    /// <inheritdoc />
+    public async Task SyncFolderAsync(string rootPath, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(rootPath) || !Directory.Exists(rootPath))
+        {
+            return;
+        }
+
+        var files = Directory.EnumerateFiles(rootPath, "*", SearchOption.AllDirectories);
+        var queued = 0;
+        foreach (var file in files)
+        {
+            var relative = Path.GetRelativePath(rootPath, file).Replace('\\', '/');
+            var job = new SyncJob
+            {
+                FilePath = file,
+                RelativePath = relative,
+                Operation = SyncOperationType.Create,
+                NextAttemptAt = DateTimeOffset.UtcNow
+            };
+            await _queue.EnqueueAsync(job, cancellationToken);
+            queued++;
+        }
+
+        _logger.LogInformation("Initial folder sync queued {Count} files from {Root}", queued, rootPath);
+    }
+
     private async Task RunLoopAsync(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)

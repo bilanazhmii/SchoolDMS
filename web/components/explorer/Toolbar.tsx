@@ -10,9 +10,10 @@ import { useRouter } from 'next/navigation';
 
 import { useQueryClient } from '@tanstack/react-query';
 
-import { FolderPlus, LayoutGrid, List, Search, Upload } from 'lucide-react';
+import { FolderPlus, LayoutGrid, List, RefreshCw, Search, Upload } from 'lucide-react';
 
 import { cn } from '../../lib/utils';
+import api from '../../lib/axios';
 import { useExplorer } from '../../hooks/useExplorer';
 import {
   createFolder,
@@ -22,9 +23,23 @@ import {
 
 const Toolbar: FC<{ folderId?: string }> = ({ folderId }) => {
   const [q, setQ] = useState('');
+  const [syncing, setSyncing] = useState(false);
   const router = useRouter();
   const qc = useQueryClient();
   const { view, setView } = useExplorer();
+
+  const handleSyncDrive = useCallback(async () => {
+    setSyncing(true);
+    try {
+      await api.get('/drive/sync');
+      qc.invalidateQueries({ queryKey: ['explorer'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+    } catch {
+      // keep explorer usable if Drive is not connected
+    } finally {
+      setSyncing(false);
+    }
+  }, [qc]);
 
   const handleSearch = useCallback(() => {
     if (q.trim()) {
@@ -113,6 +128,15 @@ const Toolbar: FC<{ folderId?: string }> = ({ folderId }) => {
 
       <button onClick={handleNewFolder} className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-foreground-muted hover:bg-surface-hover" title="Create folder">
         <FolderPlus className="h-4 w-4" /> <span className="hidden sm:inline">New folder</span>
+      </button>
+      <button
+        onClick={handleSyncDrive}
+        disabled={syncing}
+        className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-foreground-muted hover:bg-surface-hover disabled:opacity-60"
+        title="Pull files from your connected Google Drive"
+      >
+        <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
+        <span className="hidden sm:inline">{syncing ? 'Syncing…' : 'Sync Drive'}</span>
       </button>
       <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-foreground-muted hover:bg-surface-hover" title="Upload files">
         <Upload className="h-4 w-4" /> <span className="hidden sm:inline">Upload</span>

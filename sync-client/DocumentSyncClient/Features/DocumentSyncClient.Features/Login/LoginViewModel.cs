@@ -16,6 +16,8 @@ public sealed class LoginViewModel : INotifyPropertyChanged
     private readonly IAuthenticationService _authenticationService;
     private readonly IAuthenticationStore _authenticationStore;
     private readonly IAppSettingsService _settingsService;
+    private readonly ISyncEngine _syncEngine;
+    private readonly IFileMonitorService _fileMonitorService;
     private string _email = string.Empty;
     private string _password = string.Empty;
     private string _status = "Please sign in to continue.";
@@ -32,11 +34,15 @@ public sealed class LoginViewModel : INotifyPropertyChanged
     public LoginViewModel(
         IAuthenticationService authenticationService,
         IAuthenticationStore authenticationStore,
-        IAppSettingsService settingsService)
+        IAppSettingsService settingsService,
+        ISyncEngine syncEngine,
+        IFileMonitorService fileMonitorService)
     {
         _authenticationService = authenticationService;
         _authenticationStore = authenticationStore;
         _settingsService = settingsService;
+        _syncEngine = syncEngine;
+        _fileMonitorService = fileMonitorService;
         SignInCommand = new AsyncRelayCommand(SignInAsync);
         BrowseFolderCommand = new RelayCommand(BrowseFolder);
         SaveSettingsCommand = new AsyncRelayCommand(SaveSettingsAsync);
@@ -140,17 +146,25 @@ public sealed class LoginViewModel : INotifyPropertyChanged
 
         try
         {
+            // Persist the connection settings FIRST so the sign-in request
+            // and all subsequent sync traffic use the URL typed in the UI.
+            var settings = await _settingsService.LoadAsync();
+            settings.ServerUrl = ServerUrl.Trim().TrimEnd('/');
+            settings.SyncFolder = SyncFolder.Trim();
+            settings.AutoSync = AutoSync;
+            settings.AutoStartWindows = AutoStartWindows;
+            settings.RememberLogin = RememberLogin;
+            settings.AutoLogin = RememberLogin;
+            if (!string.IsNullOrWhiteSpace(settings.SyncFolder))
+                Directory.CreateDirectory(settings.SyncFolder);
+            await _settingsService.SaveAsync(settings);
+
             var result = await _authenticationService.SignInAsync(new LoginRequestDto { Email = Email, Password = Password });
             if (result is null)
             {
                 Status = "Login failed. Please verify your credentials.";
                 return;
             }
-
-            var settings = await _settingsService.LoadAsync();
-            settings.RememberLogin = RememberLogin;
-            settings.AutoLogin = RememberLogin;
-            await _settingsService.SaveAsync(settings);
 
             await _authenticationStore.SaveAsync(new Core.Models.AuthSession
             {
@@ -160,7 +174,16 @@ public sealed class LoginViewModel : INotifyPropertyChanged
                 ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(result.ExpiresIn)
             });
 
-            Status = "Signed in successfully. You can close this window; synchronization will continue in the background.";
+            if (!string.IsNullOrWhiteSpace(settings.SyncFolder) && Directory.Exists(settings.SyncFolder))
+            {
+                await _syncEngine.SyncFolderAsync(settings.SyncFolder);
+                await _fileMonitorService.StartAsync(settings.SyncFolder);
+                Status = "Signed in. Synchronizing your folder in the background.";
+            }
+            else
+            {
+                Status = "Signed in. Choose a sync folder and sign in again (or save settings) to begin syncing.";
+            }
         }
         catch (Exception ex)
         {

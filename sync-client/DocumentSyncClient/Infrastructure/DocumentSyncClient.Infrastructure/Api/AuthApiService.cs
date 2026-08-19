@@ -6,30 +6,46 @@ namespace DocumentSyncClient.Infrastructure.Api;
 
 /// <summary>
 /// Implements authentication API operations against the backend.
+/// The server URL is read from current settings on every call, so changes
+/// made in the UI are applied immediately (no app restart required).
 /// </summary>
 public sealed class AuthApiService : IAuthenticationService
 {
+    private const string DefaultServerUrl = "http://localhost:3000";
+
     private readonly HttpClient _httpClient;
     private readonly IAuthenticationStore _authStore;
+    private readonly IAppSettingsService _settingsService;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AuthApiService"/> class.
     /// </summary>
-    public AuthApiService(HttpClient httpClient, IAuthenticationStore authStore)
+    public AuthApiService(
+        HttpClient httpClient,
+        IAuthenticationStore authStore,
+        IAppSettingsService settingsService)
     {
         _httpClient = httpClient;
         _authStore = authStore;
+        _settingsService = settingsService;
+    }
+
+    private async Task<string> ResolveBaseUrlAsync(CancellationToken cancellationToken)
+    {
+        var settings = await _settingsService.LoadAsync(cancellationToken);
+        return (string.IsNullOrWhiteSpace(settings.ServerUrl)
+            ? DefaultServerUrl
+            : settings.ServerUrl).TrimEnd('/');
     }
 
     /// <inheritdoc />
     public async Task<LoginResponseDto?> SignInAsync(LoginRequestDto request, CancellationToken cancellationToken = default)
     {
-        var response = await _httpClient.PostAsJsonAsync("/auth/login", request, cancellationToken);
+        var baseUrl = await ResolveBaseUrlAsync(cancellationToken);
+        var response = await _httpClient.PostAsJsonAsync($"{baseUrl}/auth/login", request, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
             var error = await response.Content.ReadAsStringAsync(cancellationToken);
-            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-                throw new UnauthorizedAccessException("Server terhubung, tetapi email atau password ditolak. Gunakan kredensial yang sama seperti web SchoolDMS.");
             throw new HttpRequestException($"Login failed ({response.StatusCode}): {error}");
         }
 
@@ -39,7 +55,8 @@ public sealed class AuthApiService : IAuthenticationService
     /// <inheritdoc />
     public async Task<LoginResponseDto?> RefreshTokenAsync(string refreshToken, CancellationToken cancellationToken = default)
     {
-        var response = await _httpClient.PostAsJsonAsync("/auth/refresh", new RefreshTokenRequestDto { RefreshToken = refreshToken }, cancellationToken);
+        var baseUrl = await ResolveBaseUrlAsync(cancellationToken);
+        var response = await _httpClient.PostAsJsonAsync($"{baseUrl}/auth/refresh", new RefreshTokenRequestDto { RefreshToken = refreshToken }, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
             var error = await response.Content.ReadAsStringAsync(cancellationToken);

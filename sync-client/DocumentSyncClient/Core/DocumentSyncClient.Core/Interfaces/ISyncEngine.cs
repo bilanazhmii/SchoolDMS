@@ -21,4 +21,9 @@ public interface ISyncEngine
     /// Queues a local file change for synchronization.
     /// </summary>
     Task QueueFileChangeAsync(string path, SyncOperationType operation, string? payload = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Enqueues every file under a folder for upload (initial folder sync).
+    /// </summary>
+    Task SyncFolderAsync(string rootPath, CancellationToken cancellationToken = default);
 }

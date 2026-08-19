@@ -54,10 +54,10 @@ public partial class App : System.Windows.Application
                 services.AddSingleton<ISyncQueue, SqliteSyncQueue>();
                 services.AddSingleton<ISyncEngine, SyncEngine>();
                 services.AddSingleton<IFileMonitorService, FileMonitorService>();
-                services.AddHttpClient<IAuthenticationService, AuthApiService>((sp, client) =>
+                services.AddHttpClient<IAuthenticationService, AuthApiService>(client =>
                 {
-                    var settings = sp.GetRequiredService<IAppSettingsService>().LoadAsync().GetAwaiter().GetResult();
-                    client.BaseAddress = new Uri(settings.ServerUrl);
+                    // Base URL is resolved from current settings on every call
+                    // (see AuthApiService), so UI changes apply without restart.
                     client.Timeout = TimeSpan.FromSeconds(30);
                 });
                 services.AddSingleton<LoginViewModel>();
