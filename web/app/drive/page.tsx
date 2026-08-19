@@ -75,7 +75,7 @@ export default function DrivePage() {
               </button>
             ) : (
               <a
-                href={`${process.env.NEXT_PUBLIC_API_URL ?? ''}/drive/connect`}
+                href="/api/drive/connect"
                 className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover transition-colors"
               >
                 <Cloud className="h-4 w-4" />
