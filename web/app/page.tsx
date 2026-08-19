@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from 'react';
+
 import Link from 'next/link';
 
 import { useQuery } from '@tanstack/react-query';
@@ -49,6 +51,20 @@ function timeAgo(iso: string): string {
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
   return `${Math.floor(s / 86400)}d ago`;
+}
+
+/** Renders a relative timestamp only after mount to avoid SSR hydration mismatch. */
+function TimeAgo({ iso }: { iso: string | null }) {
+  const [text, setText] = useState('—');
+  useEffect(() => {
+    if (!iso) {
+      setText('—');
+      return;
+    }
+    setText(timeAgo(iso));
+  }, [iso]);
+  if (!iso) return null;
+  return <span>{text}</span>;
 }
 
 export default function Page() {
@@ -194,7 +210,7 @@ function SyncCard() {
   });
 
   const online = data?.onlineCount ?? 0;
-  const lastSync = data?.lastSyncAt ? timeAgo(data.lastSyncAt) : null;
+  const lastSyncAt = data?.lastSyncAt ?? null;
   const failed = data?.totals?.failed ?? 0;
 
   return (
@@ -224,7 +240,8 @@ function SyncCard() {
             <span className="h-1.5 w-1.5 rounded-full bg-success" />
             <span>
               {online} device{online > 1 ? 's' : ''} online
-              {lastSync ? ` · last sync ${lastSync}` : ''}
+              {lastSyncAt ? ' · last sync ' : ''}
+              {lastSyncAt ? <TimeAgo iso={lastSyncAt} /> : null}
             </span>
           </div>
           {failed > 0 && (
@@ -282,7 +299,9 @@ function RecentFiles() {
                   {file.mimeType ?? 'File'} · {formatBytes(file.size ?? 0)}
                 </div>
               </div>
-              <span className="text-2xs text-foreground-faint shrink-0">{timeAgo(file.modifiedAt)}</span>
+              <span className="text-2xs text-foreground-faint shrink-0">
+                <TimeAgo iso={file.modifiedAt} />
+              </span>
             </div>
           ))
         )}
@@ -353,7 +372,9 @@ function RecentActivity() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="text-xs text-foreground">Uploaded {file.name}</div>
-                  <div className="text-2xs text-foreground-faint">{timeAgo(file.createdAt)}</div>
+                  <div className="text-2xs text-foreground-faint">
+                    <TimeAgo iso={file.createdAt} />
+                  </div>
                 </div>
               </div>
             ))

@@ -9,6 +9,13 @@ import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
+// Prisma returns BigInt for BigInt columns (e.g. File.size). JSON.stringify
+// throws on BigInt, which turns every endpoint returning file rows into a 500
+// ("Do not know how to serialize a BigInt"). File sizes fit safely in Number.
+(BigInt.prototype as unknown as { toJSON: () => number }).toJSON = function () {
+  return Number(this);
+};
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 

@@ -59,7 +59,7 @@ export default function PublicSharePage() {
               <p className="text-sm text-foreground-muted">{error}</p>
             </div>
           ) : data?.type === 'file' ? (
-            <FileView data={data} />
+            <FileView data={data} token={token} />
           ) : data ? (
             <FolderView data={data} />
           ) : null}
@@ -69,7 +69,7 @@ export default function PublicSharePage() {
   );
 }
 
-function FileView({ data }: { data: PublicShareFile }) {
+function FileView({ data, token }: { data: PublicShareFile; token: string }) {
   return (
     <div>
       <div className="flex items-center gap-3 mb-4">
@@ -106,12 +106,7 @@ function FileView({ data }: { data: PublicShareFile }) {
       </div>
 
       <a
-        href={shareDownloadUrl(location.pathname.split('/').pop() ?? '')}
-        className="hidden"
-        aria-hidden
-      />
-      <a
-        href={shareDownloadUrlFromToken()}
+        href={shareDownloadUrl(token)}
         className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover transition-colors"
       >
         <Download className="h-4 w-4" />
@@ -119,11 +114,6 @@ function FileView({ data }: { data: PublicShareFile }) {
       </a>
     </div>
   );
-
-  function shareDownloadUrlFromToken() {
-    const token = typeof window !== 'undefined' ? window.location.pathname.split('/').pop() ?? '' : '';
-    return shareDownloadUrl(token);
-  }
 }
 
 function FolderView({ data }: { data: PublicShareFolder }) {
