@@ -88,7 +88,7 @@ export class FileService {
     }
 
     // Create file record and initial version with storage
-    return this.prisma.$transaction(async (tx) => {
+    const created = await this.prisma.$transaction(async (tx) => {
       const file = await tx.file.create({
         data: {
           name: sanitizedFilename,
@@ -127,6 +127,25 @@ export class FileService {
       );
       return file;
     });
+
+    // Keep the backend storage authoritative, then mirror to Drive when the
+    // user has connected Google Drive. A Drive outage must not lose the upload.
+    try {
+      const driveFile = await this.drive.uploadFileForProfile(profileId, {
+        name: created.name,
+        mimeType: fileMeta.mimeType,
+        buffer: fileMeta.buffer as Buffer,
+      });
+      if (driveFile?.id) {
+        return this.prisma.file.update({
+          where: { id: created.id },
+          data: { googleDriveFileId: driveFile.id },
+        });
+      }
+    } catch (error) {
+      this.logger.warn(`Google Drive mirror failed for ${created.id}`, error as Error);
+    }
+    return created;
   }
 
   async softDelete(profileId: string, id: string) {

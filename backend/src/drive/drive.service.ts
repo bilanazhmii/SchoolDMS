@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { Readable } from 'stream';
 import { google } from 'googleapis';
 
 import {
@@ -205,6 +206,28 @@ export class DriveService {
     const res = await oauth2.getAccessToken();
     if (!res.token) return null;
     return res.token;
+  }
+
+  async uploadFileForProfile(
+    profileId: string,
+    file: { name: string; mimeType: string; buffer: Buffer },
+  ) {
+    const token = await this.getAccessTokenForProfile(profileId);
+    if (!token) return null;
+    const account = await this.prisma.driveAccount.findFirst({ where: { profileId } });
+    const oauth2 = this.createOAuthClient();
+    oauth2.setCredentials({ access_token: token });
+    const drive = google.drive({ version: 'v3', auth: oauth2 });
+    const result = await drive.files.create({
+      requestBody: {
+        name: file.name,
+        mimeType: file.mimeType,
+        ...(account?.rootFolderId ? { parents: [account.rootFolderId] } : {}),
+      },
+      media: { mimeType: file.mimeType, body: Readable.from(file.buffer) },
+      fields: 'id, name, webViewLink',
+    });
+    return result.data;
   }
 
   async verifyConnection(profileId: string) {
