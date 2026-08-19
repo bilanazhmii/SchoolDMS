@@ -8,10 +8,9 @@ import {
   useState,
 } from 'react';
 
-import {
-  createClient,
-  SupabaseClient,
-} from '@supabase/supabase-js';
+import { SupabaseClient } from '@supabase/supabase-js';
+
+import { supabase as sharedSupabase } from '../lib/supabase';
 
 export interface AuthContextValue {
   supabase: SupabaseClient | null;
@@ -24,14 +23,10 @@ export function useAuth() {
 }
 
 export default function AuthProvider({ children }: { children: ReactNode }) {
-  const [supabase, setSupabase] = useState<SupabaseClient | null>(null);
+  const [supabase] = useState<SupabaseClient | null>(sharedSupabase);
 
   useEffect(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (url && key) {
-      setSupabase(createClient(url, key, { global: { fetch } }));
-    }
+    // no-op: single shared instance, nothing to construct
   }, []);
 
   return <AuthContext.Provider value={{ supabase }}>{children}</AuthContext.Provider>;

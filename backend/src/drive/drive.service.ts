@@ -6,6 +6,7 @@ import {
   Injectable,
   Inject,
   Logger,
+  OnModuleInit,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -18,12 +19,14 @@ import { STORAGE_SERVICE_TOKEN } from '../storage/storage.module';
 const ALGORITHM = 'aes-256-gcm';
 
 @Injectable()
-export class DriveService {
+export class DriveService implements OnModuleInit {
   private readonly logger = new Logger(DriveService.name);
   private readonly clientId: string;
   private readonly clientSecret: string;
   private readonly redirectUri: string;
   private readonly encryptionKey: Buffer | null;
+  private timer: NodeJS.Timeout | null = null;
+  private pulling = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -55,6 +58,50 @@ export class DriveService {
         this.redirectUri &&
         this.encryptionKey,
     );
+  }
+
+  /**
+   * Automatic Drive -> backend pull every 10 minutes for every connected user,
+   * so files changed on Google Drive appear in the web explorer without a
+   * manual "Sync Drive" click.
+   */
+  onModuleInit() {
+    if (!this.isConfigured()) {
+      this.logger.warn(
+        'Drive auto-pull disabled: Google Drive is not configured.',
+      );
+      return;
+    }
+    this.timer = setInterval(() => void this.autoPullAll(), 10 * 60 * 1000);
+    this.timer.unref?.();
+    this.logger.log(
+      'Drive auto-pull scheduler enabled (every 10 minutes).',
+    );
+  }
+
+  private async autoPullAll() {
+    if (this.pulling) return;
+    this.pulling = true;
+    try {
+      const accounts = await this.prisma.driveAccount.findMany({
+        where: { connectionStatus: 'CONNECTED' },
+        select: { profileId: true },
+      });
+      for (const account of accounts) {
+        try {
+          const result = await this.pullSync(account.profileId);
+          this.logger.log(
+            `Auto-pull for ${account.profileId}: ${JSON.stringify(result)}`,
+          );
+        } catch (e) {
+          this.logger.warn(
+            `Auto-pull failed for ${account.profileId}: ${(e as Error).message}`,
+          );
+        }
+      }
+    } finally {
+      this.pulling = false;
+    }
   }
 
   private requireConfigured(): void {
