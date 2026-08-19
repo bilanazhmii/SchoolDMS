@@ -10,6 +10,8 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env["DATABASE_URL"]!,
+    // Prisma CLI/migrations need a stable direct or session-pooled connection.
+    // Runtime Prisma Client continues to use DATABASE_URL from schema.prisma.
+    url: process.env["DIRECT_URL"] ?? process.env["DATABASE_URL"]!,
   },
 });
