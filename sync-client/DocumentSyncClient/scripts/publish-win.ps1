@@ -10,6 +10,12 @@ $output = Join-Path $root "publish\win-x64"
 
 Write-Host "Publishing $project -> $output" -ForegroundColor Cyan
 
+# Stop a running published client so the single-file executable is not locked.
+Get-Process -Name "DocumentSyncClient.App" -ErrorAction SilentlyContinue | ForEach-Object {
+    Write-Host "Stopping running DocumentSyncClient.App (PID $($_.Id))..." -ForegroundColor Yellow
+    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+}
+
 dotnet publish $project `
     -c Release `
     -r win-x64 `

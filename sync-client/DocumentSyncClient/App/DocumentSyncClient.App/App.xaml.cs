@@ -19,11 +19,23 @@ namespace DocumentSyncClient.App;
 public partial class App : Application
 {
     private IHost? _host;
+    private static readonly string StartupLogPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DocumentSyncClient", "startup.log");
+
+    private static void LogStartup(string message)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(StartupLogPath)!);
+            File.AppendAllText(StartupLogPath, $"[{DateTimeOffset.Now:O}] {message}{Environment.NewLine}");
+        }
+        catch { /* logging must never prevent startup */ }
+    }
 
     /// <inheritdoc />
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        LogStartup("OnStartup entered");
 
         DispatcherUnhandledException += (_, args) =>
         {
@@ -33,6 +45,7 @@ public partial class App : Application
 
         try
         {
+        LogStartup("Building host");
         _host = Host.CreateDefaultBuilder()
             .ConfigureServices((context, services) =>
             {
@@ -51,22 +64,30 @@ public partial class App : Application
                 services.AddSingleton<MainWindow>();
             })
             .Build();
+        LogStartup("Host built");
 
         var settings = await _host.Services.GetRequiredService<IAppSettingsService>().LoadAsync();
+        LogStartup($"Settings loaded: server={settings.ServerUrl}, folder={settings.SyncFolder}");
         var syncEngine = _host.Services.GetRequiredService<ISyncEngine>();
         await syncEngine.StartAsync();
+        LogStartup("Sync engine started");
 
         if (!string.IsNullOrWhiteSpace(settings.SyncFolder) && Directory.Exists(settings.SyncFolder))
         {
             var monitor = _host.Services.GetRequiredService<IFileMonitorService>();
             await monitor.StartAsync(settings.SyncFolder);
+            LogStartup("File monitor started");
         }
 
         var mainWindow = _host.Services.GetRequiredService<MainWindow>();
+        LogStartup("MainWindow resolved");
         mainWindow.Show();
+        mainWindow.Activate();
+        LogStartup("MainWindow shown");
         }
         catch (Exception ex)
         {
+            LogStartup($"Startup failed: {ex}");
             MessageBox.Show($"The sync client could not start its background services.\n\n{ex.Message}\n\nYou can still open the app and correct settings.", "DocumentSyncClient", MessageBoxButton.OK, MessageBoxImage.Warning);
             var mainWindow = _host?.Services.GetService<MainWindow>();
             mainWindow?.Show();

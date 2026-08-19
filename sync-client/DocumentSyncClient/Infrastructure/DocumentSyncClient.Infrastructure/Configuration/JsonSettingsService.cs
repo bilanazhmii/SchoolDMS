@@ -31,20 +31,26 @@ public sealed class JsonSettingsService : IAppSettingsService
             return defaults;
         }
 
-        var json = await File.ReadAllTextAsync(_filePath, cancellationToken);
+        var json = await File.ReadAllTextAsync(_filePath, cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(json))
         {
             return new AppSettings();
         }
 
         var settings = JsonSerializer.Deserialize<AppSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-        return settings ?? new AppSettings();
+        settings ??= new AppSettings();
+        if (settings.ServerUrl.Contains("localhost", StringComparison.OrdinalIgnoreCase))
+        {
+            settings.ServerUrl = "https://schooldms-production.up.railway.app";
+            await SaveAsync(settings, cancellationToken).ConfigureAwait(false);
+        }
+        return settings;
     }
 
     /// <inheritdoc />
     public async Task SaveAsync(AppSettings settings, CancellationToken cancellationToken = default)
     {
         var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
-        await File.WriteAllTextAsync(_filePath, json, cancellationToken);
+        await File.WriteAllTextAsync(_filePath, json, cancellationToken).ConfigureAwait(false);
     }
 }
