@@ -28,6 +28,8 @@ public sealed class AuthApiService : IAuthenticationService
         if (!response.IsSuccessStatusCode)
         {
             var error = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                throw new UnauthorizedAccessException("Server terhubung, tetapi email atau password ditolak. Gunakan kredensial yang sama seperti web SchoolDMS.");
             throw new HttpRequestException($"Login failed ({response.StatusCode}): {error}");
         }
 
