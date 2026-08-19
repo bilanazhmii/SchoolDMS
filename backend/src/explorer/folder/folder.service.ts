@@ -47,13 +47,17 @@ export class FolderService {
       skip,
     });
 
+    // Home ("My Files") is folder-first: never dump loose files at the root.
+    if (!folderId) {
+      return { folders, files: [] };
+    }
+
     const fileWhere: {
       ownerId: string;
       deletedAt: Date | null;
       folderId?: string;
       name?: { contains: string; mode: 'insensitive' };
-    } = { ownerId: profileId, deletedAt: null };
-    if (folderId) fileWhere.folderId = folderId;
+    } = { ownerId: profileId, deletedAt: null, folderId };
     if (filter) fileWhere.name = { contains: filter, mode: 'insensitive' };
 
     const files = await this.prisma.file.findMany({

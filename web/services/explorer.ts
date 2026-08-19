@@ -159,8 +159,6 @@ export async function fetchPreviewUrl(fileId: string): Promise<{ url: string }> 
     googleDriveFileId?: string;
     accessToken?: string;
   }>(data);
-  const url = payload?.drive
-    ? `/files/${fileId}/stream`
-    : (payload?.previewUrl ?? payload?.streamUrl ?? '');
+  const url = payload?.streamUrl || `/files/${fileId}/stream`;
   return { url };
 }

@@ -8,4 +8,8 @@ export class UploadFileDto {
   @IsOptional()
   @IsString()
   note?: string;
+
+  @IsOptional()
+  @IsString()
+  relativePath?: string;
 }

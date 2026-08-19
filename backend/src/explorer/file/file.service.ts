@@ -55,6 +55,7 @@ export class FileService {
     profileId: string,
     fileMeta: { name: string; mimeType: string; size: number; buffer?: Buffer },
     folderId?: string,
+    relativePathHint?: string,
   ) {
     // Validate file before processing
     if (!fileMeta.buffer) {
@@ -76,7 +77,12 @@ export class FileService {
       );
     }
 
-    // Get folder path for relativePath calculation
+    // Prefer an explicit folderId; otherwise rebuild the folder tree from the
+    // relative path sent by the desktop client (e.g. "Docs/Reports/a.pdf").
+    if (!folderId && relativePathHint) {
+      folderId = await this.ensureFolderPath(profileId, relativePathHint);
+    }
+
     let relativePath = `/${sanitizedFilename}`;
     if (folderId) {
       const folder = await this.prisma.folder.findUnique({
@@ -146,6 +152,50 @@ export class FileService {
       this.logger.warn(`Google Drive mirror failed for ${created.id}`, error as Error);
     }
     return created;
+  }
+
+  /**
+   * Walks a relative file path ("Docs/Reports/a.pdf") and creates any missing
+   * folders under the user's root. Returns the parent folder id for the file.
+   */
+  private async ensureFolderPath(
+    profileId: string,
+    relativePathHint: string,
+  ): Promise<string | undefined> {
+    const normalized = relativePathHint.replace(/\\/g, '/').replace(/^\/+/, '');
+    const parts = normalized.split('/').filter(Boolean);
+    if (parts.length <= 1) return undefined;
+
+    const folderNames = parts.slice(0, -1);
+    let parentId: string | undefined;
+    let walked = '';
+
+    for (const name of folderNames) {
+      walked = walked ? `${walked}/${name}` : `/${name}`;
+      const existing = await this.prisma.folder.findFirst({
+        where: {
+          ownerId: profileId,
+          parentFolderId: parentId ?? null,
+          name,
+          deletedAt: null,
+        },
+      });
+      if (existing) {
+        parentId = existing.id;
+        continue;
+      }
+      const created = await this.prisma.folder.create({
+        data: {
+          name,
+          ownerId: profileId,
+          parentFolderId: parentId ?? null,
+          relativePath: walked.startsWith('/') ? walked : `/${walked}`,
+        },
+      });
+      parentId = created.id;
+    }
+
+    return parentId;
   }
 
   async softDelete(profileId: string, id: string) {

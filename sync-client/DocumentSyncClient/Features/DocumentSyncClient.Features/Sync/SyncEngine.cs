@@ -93,15 +93,39 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
     /// <inheritdoc />
     public async Task QueueFileChangeAsync(string path, SyncOperationType operation, string? payload = null, CancellationToken cancellationToken = default)
     {
+        var settings = await _settingsService.LoadAsync(cancellationToken);
         var job = new SyncJob
         {
             FilePath = path,
+            RelativePath = BuildRelativePath(path, settings),
             Operation = operation,
             Payload = payload,
             NextAttemptAt = DateTimeOffset.UtcNow
         };
 
         await _queue.EnqueueAsync(job, cancellationToken);
+    }
+
+    private static string BuildRelativePath(string filePath, AppSettings settings)
+    {
+        var roots = new[] { settings.SyncFolder }
+            .Concat(settings.SyncFolders ?? [])
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        foreach (var root in roots)
+        {
+            var fullRoot = Path.GetFullPath(root);
+            var fullFile = Path.GetFullPath(filePath);
+            if (!fullFile.StartsWith(fullRoot.TrimEnd('\\') + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(fullFile, fullRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            var rootName = Path.GetFileName(fullRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            var inside = Path.GetRelativePath(fullRoot, fullFile).Replace('\\', '/');
+            return string.IsNullOrWhiteSpace(rootName) ? inside : $"{rootName}/{inside}";
+        }
+        return Path.GetFileName(filePath);
     }
 
     /// <inheritdoc />
@@ -114,9 +138,11 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
 
         var files = Directory.EnumerateFiles(rootPath, "*", SearchOption.AllDirectories);
         var queued = 0;
+        var rootName = Path.GetFileName(rootPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         foreach (var file in files)
         {
-            var relative = Path.GetRelativePath(rootPath, file).Replace('\\', '/');
+            var inside = Path.GetRelativePath(rootPath, file).Replace('\\', '/');
+            var relative = string.IsNullOrWhiteSpace(rootName) ? inside : $"{rootName}/{inside}";
             var job = new SyncJob
             {
                 FilePath = file,
@@ -366,7 +392,11 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
         using var content = new MultipartFormDataContent();
         var fileContent = new StreamContent(stream);
         fileContent.Headers.ContentType = new MediaTypeHeaderValue(DetectMimeType(job.FilePath));
+        var relative = string.IsNullOrWhiteSpace(job.RelativePath)
+            ? Path.GetFileName(job.FilePath)
+            : job.RelativePath.Replace('\\', '/');
         content.Add(fileContent, "files", Path.GetFileName(job.FilePath));
+        content.Add(new StringContent(relative), "relativePath");
 
         using var response = await client.PostAsync("/files/upload", content, cancellationToken);
         if (!response.IsSuccessStatusCode)

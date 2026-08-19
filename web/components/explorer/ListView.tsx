@@ -40,9 +40,8 @@ const ListView: FC<{
   }
 
   function formatDate(date: string): string {
-    const d = new Date(date);
-    if (isNaN(d.getTime())) return date;
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    if (!date) return '';
+    return date.slice(0, 10);
   }
 
   return (

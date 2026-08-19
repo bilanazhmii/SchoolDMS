@@ -65,6 +65,7 @@ export class FileController {
           buffer: file.buffer,
         },
         folderId ?? body.folderId,
+        body.relativePath,
       );
       uploaded.push(result);
     }

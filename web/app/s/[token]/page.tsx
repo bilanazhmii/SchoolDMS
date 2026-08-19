@@ -92,7 +92,7 @@ function FileView({ data, token }: { data: PublicShareFile; token: string }) {
         <div className="flex justify-between">
           <span>Kedaluwarsa</span>
           <span className="font-medium text-foreground">
-            {data.expiresAt ? new Date(data.expiresAt).toLocaleDateString() : 'Tidak ada'}
+            {data.expiresAt ? data.expiresAt.slice(0, 10) : 'Tidak ada'}
           </span>
         </div>
         {data.downloadLimit > 0 && (
