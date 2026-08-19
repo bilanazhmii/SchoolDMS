@@ -47,8 +47,18 @@ export class AuthService {
       throw new UnauthorizedException('Invalid Supabase access token');
     }
 
-    const profile = await this.prisma.profile.findUnique({
+    const profile = await this.prisma.profile.upsert({
       where: { supabaseAuthId: user.id },
+      update: {
+        email: user.email ?? '',
+        lastLogin: new Date(),
+      },
+      create: {
+        supabaseAuthId: user.id,
+        email: user.email ?? `${user.id}@local.invalid`,
+        fullName: user.user_metadata?.full_name as string | undefined,
+        lastLogin: new Date(),
+      },
       include: {
         roles: {
           include: {
@@ -65,10 +75,6 @@ export class AuthService {
         },
       },
     });
-
-    if (!profile) {
-      throw new UnauthorizedException('User profile not found');
-    }
 
     return profile;
   }
