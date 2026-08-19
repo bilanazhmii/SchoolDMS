@@ -55,7 +55,32 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
     public Task StartAsync(CancellationToken cancellationToken = default)
     {
         _workerTask = Task.Run(() => RunLoopAsync(_cts.Token), cancellationToken);
+        _ = Task.Run(() => HeartbeatLoopAsync(_cts.Token), cancellationToken);
         return Task.CompletedTask;
+    }
+
+    private async Task HeartbeatLoopAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await RegisterDeviceAsync(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug("Heartbeat skipped: {Message}", ex.Message);
+            }
+
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(60), cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
     }
 
     /// <inheritdoc />

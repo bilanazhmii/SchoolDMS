@@ -8,9 +8,11 @@ import {
 
 import { fetchFile } from '../../services/explorer';
 import type { FileItem } from '../../types/explorer';
+import ShareDialog from './ShareDialog';
 
 const MetadataPanel: FC<{ fileId?: string | null }> = ({ fileId }) => {
   const [meta, setMeta] = useState<FileItem | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -31,6 +33,14 @@ const MetadataPanel: FC<{ fileId?: string | null }> = ({ fileId }) => {
         <div><strong>Modified:</strong> {meta.modifiedAt}</div>
         <div><strong>Created:</strong> {meta.createdAt}</div>
       </div>
+      <button
+        type="button"
+        onClick={() => setShareOpen(true)}
+        className="mt-3 inline-flex items-center rounded-md border border-border px-3 py-1.5 text-xs text-foreground-muted hover:bg-surface-hover"
+      >
+        Share
+      </button>
+      <ShareDialog fileId={meta.id} open={shareOpen} onClose={() => setShareOpen(false)} />
     </div>
   );
 };
