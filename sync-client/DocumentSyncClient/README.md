@@ -40,7 +40,7 @@ Fail tetapan: `%APPDATA%/DocumentSyncClient/settings.json`
 
 | Kunci | Maksud |
 |---|---|
-| `ServerUrl` | URL backend. Lokal: `http://localhost:3000`. Produksi (Render): `https://nama-app.onrender.com` |
+| `ServerUrl` | URL backend. Lokal: `http://localhost:3000`. Produksi Railway: `https://schooldms-production.up.railway.app` |
 | `SyncFolder` | Folder tempatan yang dipantau & disegerakkan |
 | `AutoSync` | Hidupkan pemprosesan queue latar (default `true`) |
 | `AutoStartWindows` | (pilihan) mula bersama Windows |

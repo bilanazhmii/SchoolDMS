@@ -32,7 +32,7 @@ const ProfileDropdown: FC = () => {
           <div className="py-1">
             <Link href="/profile" className="block px-4 py-2 text-sm">Profile</Link>
             <Link href="/settings" className="block px-4 py-2 text-sm">Settings</Link>
-            <button onClick={() => router.push('/login')} className="w-full text-left px-4 py-2 text-sm text-red-600">Sign out</button>
+            <button onClick={async () => { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); router.push('/login'); }} className="w-full text-left px-4 py-2 text-sm text-red-600">Sign out</button>
           </div>
         </div>
       )}

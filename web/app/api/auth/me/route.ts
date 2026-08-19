@@ -11,7 +11,8 @@ export async function GET() {
 
   if (!BACKEND) return NextResponse.json({ error: 'backend missing' }, { status: 500 });
 
-  const resp = await fetch(`${BACKEND.replace(/\/$/, '')}/auth/me`, {
+  const backendBase = BACKEND.replace(/\/+$/, '').replace(/\/api$/i, '');
+  const resp = await fetch(`${backendBase}/auth/me`, {
     headers: { Authorization: `Bearer ${token}` },
   });
 
