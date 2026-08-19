@@ -178,6 +178,25 @@ function DriveCard() {
 
 /* ---------- Sync Card ---------- */
 function SyncCard() {
+  const { data, isLoading } = useQuery<{
+    onlineCount: number;
+    devices: { hostname: string | null; machineName: string | null; online: boolean; lastSeen: string | null }[];
+    totals: { all: number; synced: number; failed: number };
+    lastSyncAt: string | null;
+  }>({
+    queryKey: ['dashboard', 'sync-status'],
+    queryFn: async () => {
+      const { data } = await api.get('/sync/status');
+      return unwrap(data);
+    },
+    refetchInterval: 15000,
+    staleTime: 5000,
+  });
+
+  const online = data?.onlineCount ?? 0;
+  const lastSync = data?.lastSyncAt ? timeAgo(data.lastSyncAt) : null;
+  const failed = data?.totals?.failed ?? 0;
+
   return (
     <div className="rounded-lg border border-border bg-card p-4">
       <div className="flex items-center justify-between mb-3">
@@ -190,14 +209,37 @@ function SyncCard() {
             <div className="text-2xs text-foreground-faint">Desktop sync client</div>
           </div>
         </div>
-        <Link href="/sync" className="text-2xs text-foreground-faint hover:text-foreground transition-colors">
+        <Link href="/drive" className="text-2xs text-foreground-faint hover:text-foreground transition-colors">
           View
         </Link>
       </div>
-      <div className="flex items-center gap-1.5 text-2xs text-foreground-muted">
-        <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-        <span>Use the DocumentSyncClient desktop app to sync folders</span>
-      </div>
+      {isLoading ? (
+        <div className="flex items-center gap-1.5 text-2xs text-foreground-muted">
+          <span className="h-1.5 w-1.5 rounded-full bg-warning animate-pulse" />
+          <span>Checking…</span>
+        </div>
+      ) : online > 0 ? (
+        <div className="space-y-1">
+          <div className="flex items-center gap-1.5 text-2xs text-foreground-muted">
+            <span className="h-1.5 w-1.5 rounded-full bg-success" />
+            <span>
+              {online} device{online > 1 ? 's' : ''} online
+              {lastSync ? ` · last sync ${lastSync}` : ''}
+            </span>
+          </div>
+          {failed > 0 && (
+            <div className="flex items-center gap-1.5 text-2xs text-warning">
+              <span className="h-1.5 w-1.5 rounded-full bg-warning" />
+              <span>{failed} failed job{failed > 1 ? 's' : ''}</span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex items-center gap-1.5 text-2xs text-foreground-muted">
+          <span className="h-1.5 w-1.5 rounded-full bg-warning" />
+          <span>Desktop client not connected — sign in on Windows to sync</span>
+        </div>
+      )}
     </div>
   );
 }

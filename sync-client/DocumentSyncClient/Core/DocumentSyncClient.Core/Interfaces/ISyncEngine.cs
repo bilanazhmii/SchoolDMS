@@ -26,4 +26,15 @@ public interface ISyncEngine
     /// Enqueues every file under a folder for upload (initial folder sync).
     /// </summary>
     Task SyncFolderAsync(string rootPath, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Raised after a job is completed or failed (for live UI indicators).
+    /// </summary>
+    event Action<SyncJob, bool>? JobProcessed;
+
+    /// <summary>
+    /// Registers this device with the backend heartbeat so the web dashboard
+    /// can show the client as online.
+    /// </summary>
+    Task RegisterDeviceAsync(CancellationToken cancellationToken = default);
 }

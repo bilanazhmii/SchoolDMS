@@ -46,8 +46,51 @@ public sealed class LoginViewModel : INotifyPropertyChanged
         SignInCommand = new AsyncRelayCommand(SignInAsync);
         BrowseFolderCommand = new RelayCommand(BrowseFolder);
         SaveSettingsCommand = new AsyncRelayCommand(SaveSettingsAsync);
+        _syncEngine.JobProcessed += (_, success) =>
+        {
+            if (success) SyncedCount++;
+            else FailedCount++;
+            LastSyncAt = DateTimeOffset.Now;
+            OnPropertyChanged(nameof(SyncedCount));
+            OnPropertyChanged(nameof(FailedCount));
+            OnPropertyChanged(nameof(LastSyncAt));
+            OnPropertyChanged(nameof(StatusLine));
+        };
         _ = LoadSettingsAsync();
     }
+
+    /// <summary>
+    /// Gets whether a user is currently signed in (live indicator).
+    /// </summary>
+    public bool IsSignedIn { get; private set; }
+
+    /// <summary>
+    /// Gets the email of the signed-in user.
+    /// </summary>
+    public string ConnectedEmail { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// Gets the time of the last completed sync job.
+    /// </summary>
+    public DateTimeOffset? LastSyncAt { get; private set; }
+
+    /// <summary>
+    /// Gets the number of successfully synced files this session.
+    /// </summary>
+    public int SyncedCount { get; private set; }
+
+    /// <summary>
+    /// Gets the number of failed sync jobs this session.
+    /// </summary>
+    public int FailedCount { get; private set; }
+
+    /// <summary>
+    /// Human-readable connection/sync status for the UI.
+    /// </summary>
+    public string StatusLine => IsSignedIn
+        ? $"Connected as {ConnectedEmail} · {SyncedCount} synced · {FailedCount} failed" +
+          (LastSyncAt.HasValue ? $" · last sync {LastSyncAt.Value.ToLocalTime():HH:mm:ss}" : string.Empty)
+        : "Not connected — sign in to synchronize.";
 
     /// <summary>
     /// Gets the sign-in command.
@@ -173,6 +216,14 @@ public sealed class LoginViewModel : INotifyPropertyChanged
                 Email = result.Email,
                 ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(result.ExpiresIn)
             });
+
+            IsSignedIn = true;
+            ConnectedEmail = result.Email;
+            OnPropertyChanged(nameof(IsSignedIn));
+            OnPropertyChanged(nameof(ConnectedEmail));
+            OnPropertyChanged(nameof(StatusLine));
+
+            await _syncEngine.RegisterDeviceAsync();
 
             if (!string.IsNullOrWhiteSpace(settings.SyncFolder) && Directory.Exists(settings.SyncFolder))
             {

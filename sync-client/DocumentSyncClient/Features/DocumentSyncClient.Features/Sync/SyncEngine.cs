@@ -25,6 +25,16 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
     private Task? _workerTask;
 
     /// <summary>
+    /// Raised after a job is completed or failed (for live UI indicators).
+    /// </summary>
+    public event Action<SyncJob, bool>? JobProcessed;
+
+    /// <summary>
+    /// Session id returned by the backend heartbeat, used to report jobs.
+    /// </summary>
+    public string? SessionId { get; private set; }
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="SyncEngine"/> class.
     /// </summary>
     public SyncEngine(
@@ -96,6 +106,111 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
         _logger.LogInformation("Initial folder sync queued {Count} files from {Root}", queued, rootPath);
     }
 
+    /// <summary>
+    /// Registers this device with the backend (heartbeat) so the web dashboard
+    /// can show the desktop client as online. No-op when not signed in.
+    /// </summary>
+    public async Task RegisterDeviceAsync(CancellationToken cancellationToken = default)
+    {
+        var session = await _authStore.LoadAsync(cancellationToken);
+        if (session is null || string.IsNullOrWhiteSpace(session.AccessToken))
+        {
+            return;
+        }
+
+        var settings = await _settingsService.LoadAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(settings.DeviceId))
+        {
+            settings.DeviceId = Guid.NewGuid().ToString("N");
+            await _settingsService.SaveAsync(settings, cancellationToken);
+        }
+
+        var baseUrl = (string.IsNullOrWhiteSpace(settings.ServerUrl)
+            ? "http://localhost:3000"
+            : settings.ServerUrl).TrimEnd('/');
+
+        try
+        {
+            using var client = CreateHttpClient(baseUrl, session.AccessToken);
+            var response = await client.PostAsJsonAsync(
+                "/sync/heartbeat",
+                new
+                {
+                    deviceIdentifier = settings.DeviceId,
+                    hostname = Environment.MachineName,
+                    machineName = Environment.MachineName,
+                    clientVersion = typeof(SyncEngine).Assembly.GetName().Version?.ToString() ?? "1.0.0",
+                },
+                cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: cancellationToken);
+                if (body.TryGetProperty("data", out var data) &&
+                    data.TryGetProperty("sessionId", out var sessionId) &&
+                    sessionId.ValueKind == JsonValueKind.String)
+                {
+                    SessionId = sessionId.GetString();
+                    _logger.LogInformation("Device registered with backend (session {SessionId})", SessionId);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Device registration failed: {Message}", ex.Message);
+        }
+    }
+
+    private async Task ReportJobAsync(SyncJob job, bool success, string? error, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(SessionId))
+        {
+            return;
+        }
+
+        var session = await _authStore.LoadAsync(cancellationToken);
+        if (session is null || string.IsNullOrWhiteSpace(session.AccessToken))
+        {
+            return;
+        }
+
+        var settings = await _settingsService.LoadAsync(cancellationToken);
+        var baseUrl = (string.IsNullOrWhiteSpace(settings.ServerUrl)
+            ? "http://localhost:3000"
+            : settings.ServerUrl).TrimEnd('/');
+
+        try
+        {
+            using var client = CreateHttpClient(baseUrl, session.AccessToken);
+            await client.PostAsJsonAsync(
+                "/sync/jobs",
+                new
+                {
+                    sessionId = SessionId,
+                    operation = MapOperation(job.Operation),
+                    status = success ? "SYNCED" : "FAILED",
+                    filePath = job.FilePath,
+                    relativePath = job.RelativePath,
+                    message = error,
+                },
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("Job report failed (non-critical): {Message}", ex.Message);
+        }
+    }
+
+    private static string MapOperation(SyncOperationType operation) => operation switch
+    {
+        SyncOperationType.Create => "UPLOAD",
+        SyncOperationType.Update => "UPLOAD",
+        SyncOperationType.Delete => "DELETE",
+        SyncOperationType.Rename => "RENAME",
+        SyncOperationType.Move => "MOVE",
+        _ => "UPLOAD"
+    };
+
     private async Task RunLoopAsync(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
@@ -121,11 +236,15 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
                     await ProcessJobAsync(job, cancellationToken);
                     await _queue.CompleteAsync(job.Id, cancellationToken);
                     _logger.LogInformation("Sync job {JobId} completed ({Operation} {Path})", job.Id, job.Operation, job.RelativePath);
+                    JobProcessed?.Invoke(job, true);
+                    _ = ReportJobAsync(job, true, null);
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Sync job {JobId} failed: {Message}", job.Id, ex.Message);
                     await _queue.FailAsync(job.Id, ex.Message, cancellationToken);
+                    JobProcessed?.Invoke(job, false);
+                    _ = ReportJobAsync(job, false, ex.Message);
                 }
             }
             catch (OperationCanceledException)

@@ -13,6 +13,7 @@ import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { SharingModule } from './sharing/sharing.module';
 import { StorageModule } from './storage/storage.module';
+import { SyncModule } from './sync/sync.module';
 
 @Module({
   imports: [
@@ -30,6 +31,8 @@ import { StorageModule } from './storage/storage.module';
     ExplorerModule,
     // Public share links & guest view
     SharingModule,
+    // Sync status & device heartbeats
+    SyncModule,
   ],
   controllers: [AppController, AuthExamplesController],
   providers: [AppService],

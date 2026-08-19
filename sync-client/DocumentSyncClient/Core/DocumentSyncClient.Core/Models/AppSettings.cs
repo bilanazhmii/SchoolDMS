@@ -44,4 +44,9 @@ public sealed class AppSettings
     /// Gets or sets a value indicating whether the user should be automatically signed in.
     /// </summary>
     public bool AutoLogin { get; set; }
+
+    /// <summary>
+    /// Gets or sets a stable device identifier used for backend heartbeats.
+    /// </summary>
+    public string DeviceId { get; set; } = string.Empty;
 }

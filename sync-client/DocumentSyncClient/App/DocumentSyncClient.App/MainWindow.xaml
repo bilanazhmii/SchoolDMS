@@ -24,6 +24,26 @@
             <TextBlock Text="Sync folder" FontSize="12" Foreground="#65758B"/><DockPanel Margin="0,5,0,12"><TextBox Text="{Binding SyncFolder, UpdateSourceTrigger=PropertyChanged}" Margin="0"/><Button DockPanel.Dock="Right" Content="Browse…" Command="{Binding BrowseFolderCommand}" Margin="8,0,0,0"/></DockPanel>
             <StackPanel Orientation="Horizontal" Margin="0,0,0,10"><CheckBox IsChecked="{Binding AutoSync}" Content="Sync changes automatically" Margin="0,0,20,0"/><CheckBox IsChecked="{Binding AutoStartWindows}" Content="Start with Windows"/></StackPanel>
             <StackPanel Orientation="Horizontal"><Button Content="Sign in" Width="120" Background="#1E73BE" Foreground="White" Command="{Binding SignInCommand}"/><Button Content="Save settings" Command="{Binding SaveSettingsCommand}"/></StackPanel>
+            <Border Background="#EAF2FB" CornerRadius="8" Padding="14,12" Margin="0,16,0,0" BorderBrush="#B9D5F2" BorderThickness="1">
+                <StackPanel>
+                    <DockPanel>
+                        <Ellipse Width="10" Height="10" VerticalAlignment="Center">
+                            <Ellipse.Style>
+                                <Style TargetType="Ellipse">
+                                    <Setter Property="Fill" Value="#9AA5B1"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsSignedIn}" Value="True">
+                                            <Setter Property="Fill" Value="#2E9E5B"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Ellipse.Style>
+                        </Ellipse>
+                        <TextBlock Text="Connection" FontWeight="SemiBold" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                    </DockPanel>
+                    <TextBlock Text="{Binding StatusLine}" TextWrapping="Wrap" Foreground="#243247" FontSize="13" Margin="0,6,0,0"/>
+                </StackPanel>
+            </Border>
             <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Foreground="#65758B" Margin="0,18,0,0"/><ProgressBar IsIndeterminate="{Binding IsBusy}" Height="5" Margin="0,12,0,0"/>
         </StackPanel></ScrollViewer>
     </Grid>
