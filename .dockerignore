@@ -6,7 +6,8 @@ node_modules
 **/dist
 **/.next
 **/publish
-**/storage
+# Hanya folder runtime (bukan backend/src/storage) — jangan sekali-kali exclude src/storage
+backend/storage
 .env
 .env.*
 !.env.example
