@@ -1,6 +1,6 @@
 # Railway build untuk backend SchoolDMS (NestJS + Prisma)
 # Dockerfile di namakan railway.Dockerfile supaya tidak mengganggu vercel.json (web).
-FROM node:20-slim
+FROM node:22-slim
 
 # Prisma memerlukan openssl
 RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
@@ -24,4 +24,4 @@ RUN npx prisma --version
 ENV NODE_ENV=production
 EXPOSE 3000
 
-CMD ["sh", "-c", "npx prisma migrate deploy && npm run start:prod"]
+CMD ["sh", "scripts/start-production.sh"]
