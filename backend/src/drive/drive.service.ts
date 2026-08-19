@@ -214,20 +214,39 @@ export class DriveService {
   ) {
     const token = await this.getAccessTokenForProfile(profileId);
     if (!token) return null;
-    const account = await this.prisma.driveAccount.findFirst({ where: { profileId } });
     const oauth2 = this.createOAuthClient();
     oauth2.setCredentials({ access_token: token });
     const drive = google.drive({ version: 'v3', auth: oauth2 });
+    const rootFolderId = await this.ensureRootFolder(profileId, token);
     const result = await drive.files.create({
       requestBody: {
         name: file.name,
         mimeType: file.mimeType,
-        ...(account?.rootFolderId ? { parents: [account.rootFolderId] } : {}),
+        ...(rootFolderId ? { parents: [rootFolderId] } : {}),
       },
       media: { mimeType: file.mimeType, body: Readable.from(file.buffer) },
       fields: 'id, name, webViewLink',
     });
     return result.data;
+  }
+
+  private async ensureRootFolder(profileId: string, accessToken: string) {
+    const account = await this.prisma.driveAccount.findFirst({ where: { profileId } });
+    if (account?.rootFolderId) return account.rootFolderId;
+    const oauth2 = this.createOAuthClient();
+    oauth2.setCredentials({ access_token: accessToken });
+    const drive = google.drive({ version: 'v3', auth: oauth2 });
+    const existing = await drive.files.list({
+      q: "name = 'SchoolDMS' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+      fields: 'files(id)',
+      pageSize: 1,
+    });
+    const folderId = existing.data.files?.[0]?.id ?? (await drive.files.create({
+      requestBody: { name: 'SchoolDMS', mimeType: 'application/vnd.google-apps.folder' },
+      fields: 'id',
+    })).data.id;
+    if (folderId && account) await this.prisma.driveAccount.update({ where: { id: account.id }, data: { rootFolderId: folderId } });
+    return folderId ?? null;
   }
 
   async verifyConnection(profileId: string) {
