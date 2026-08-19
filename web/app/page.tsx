@@ -190,7 +190,7 @@ function SyncCard() {
             <div className="text-2xs text-foreground-faint">Desktop sync client</div>
           </div>
         </div>
-        <Link href="/drive" className="text-2xs text-foreground-faint hover:text-foreground transition-colors">
+        <Link href="/sync" className="text-2xs text-foreground-faint hover:text-foreground transition-colors">
           View
         </Link>
       </div>

@@ -108,6 +108,11 @@ export async function uploadFiles(folderId: string | undefined, form: FormData) 
   return unwrap(data);
 }
 
+export async function createFolder(name: string, parentFolderId?: string) {
+  const { data } = await api.post('/folders', { name, parentFolderId: parentFolderId ?? null });
+  return unwrap(data);
+}
+
 export async function moveItem(itemId: string, toFolderId?: string) {
   const { data } = await api.post(`/files/${itemId}/move`, {
     toFolderId: toFolderId ?? null,

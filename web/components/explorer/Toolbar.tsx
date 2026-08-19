@@ -10,11 +10,12 @@ import { useRouter } from 'next/navigation';
 
 import { useQueryClient } from '@tanstack/react-query';
 
-import { LayoutGrid, List, Search, Upload } from 'lucide-react';
+import { FolderPlus, LayoutGrid, List, Search, Upload } from 'lucide-react';
 
 import { cn } from '../../lib/utils';
 import { useExplorer } from '../../hooks/useExplorer';
 import {
+  createFolder,
   searchExplorer,
   uploadFiles,
 } from '../../services/explorer';
@@ -48,6 +49,23 @@ const Toolbar: FC<{ folderId?: string }> = ({ folderId }) => {
     await uploadFiles(folderId, form);
     qc.invalidateQueries({ queryKey: ['explorer', 'contents', folderId] });
   }, [folderId, qc]);
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+    const form = new FormData();
+    files.forEach((file) => form.append('files', file));
+    await uploadFiles(folderId, form);
+    e.target.value = '';
+    qc.invalidateQueries({ queryKey: ['explorer', 'contents', folderId] });
+  };
+
+  const handleNewFolder = async () => {
+    const name = window.prompt('Folder name');
+    if (!name?.trim()) return;
+    await createFolder(name.trim(), folderId);
+    qc.invalidateQueries({ queryKey: ['explorer', 'contents', folderId] });
+  };
 
   return (
     <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card">
@@ -92,6 +110,14 @@ const Toolbar: FC<{ folderId?: string }> = ({ folderId }) => {
           <List className="h-4 w-4" />
         </button>
       </div>
+
+      <button onClick={handleNewFolder} className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-foreground-muted hover:bg-surface-hover" title="Create folder">
+        <FolderPlus className="h-4 w-4" /> <span className="hidden sm:inline">New folder</span>
+      </button>
+      <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-foreground-muted hover:bg-surface-hover" title="Upload files">
+        <Upload className="h-4 w-4" /> <span className="hidden sm:inline">Upload</span>
+        <input type="file" multiple className="hidden" onChange={handleUpload} />
+      </label>
 
       {/* Upload / drag-drop target */}
       <div
