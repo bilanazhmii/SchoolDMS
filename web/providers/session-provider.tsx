@@ -19,12 +19,14 @@ import { AuthContext } from './auth-provider';
 interface SessionContextValue {
   session: Session | null;
   user: User | null;
+  ready: boolean;
   setSession: (s: Session | null) => void;
 }
 
 const SessionContext = createContext<SessionContextValue>({
   session: null,
   user: null,
+  ready: false,
   setSession: () => {},
 });
 
@@ -36,9 +38,13 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
   const { supabase } = useContext(AuthContext) as AuthContextValue;
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    if (!supabase) return;
+    if (!supabase) {
+      setReady(true);
+      return;
+    }
 
     const init = async () => {
       const { data } = await supabase.auth.getSession();
@@ -62,6 +68,7 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
           // ignore
         }
       }
+      setReady(true);
     };
 
     init();
@@ -86,7 +93,9 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
     return () => sub.subscription.unsubscribe();
   }, [supabase]);
 
-  return <SessionContext.Provider value={{ session, user, setSession }}>{children}</SessionContext.Provider>;
+  if (!ready) return null;
+
+  return <SessionContext.Provider value={{ session, user, ready, setSession }}>{children}</SessionContext.Provider>;
 }
 
 export { SessionContext };
