@@ -45,6 +45,8 @@ public sealed class LoginViewModel : INotifyPropertyChanged
         _fileMonitorService = fileMonitorService;
         SignInCommand = new AsyncRelayCommand(SignInAsync);
         BrowseFolderCommand = new RelayCommand(BrowseFolder);
+        AddFolderCommand = new RelayCommand(AddFolder);
+        RemoveFolderCommand = new RelayCommand<string>(RemoveFolder);
         SaveSettingsCommand = new AsyncRelayCommand(SaveSettingsAsync);
         _syncEngine.JobProcessed += (_, success) =>
         {
@@ -97,10 +99,15 @@ public sealed class LoginViewModel : INotifyPropertyChanged
     /// </summary>
     public IAsyncRelayCommand SignInCommand { get; }
     public IRelayCommand BrowseFolderCommand { get; }
+    public IRelayCommand AddFolderCommand { get; }
+    public IRelayCommand<string> RemoveFolderCommand { get; }
     public IAsyncRelayCommand SaveSettingsCommand { get; }
     public Action? FolderPicker { get; set; }
     public string ServerUrl { get => _serverUrl; set { if (_serverUrl == value) return; _serverUrl = value; OnPropertyChanged(); } }
-    public string SyncFolder { get => _syncFolder; set { if (_syncFolder == value) return; _syncFolder = value; OnPropertyChanged(); } }
+    public string SyncFolder { get => _syncFolder; set { if (_syncFolder == value) return; _syncFolder = value; OnPropertyChanged(); OnPropertyChanged(nameof(AllSyncFolders)); } }
+    public System.Collections.ObjectModel.ObservableCollection<string> ExtraFolders { get; } = [];
+    public IEnumerable<string> AllSyncFolders =>
+        new[] { SyncFolder }.Concat(ExtraFolders).Where(p => !string.IsNullOrWhiteSpace(p)).Distinct(StringComparer.OrdinalIgnoreCase);
     public bool AutoSync { get => _autoSync; set { if (_autoSync == value) return; _autoSync = value; OnPropertyChanged(); } }
     public bool AutoStartWindows { get => _autoStartWindows; set { if (_autoStartWindows == value) return; _autoStartWindows = value; OnPropertyChanged(); } }
 
@@ -194,6 +201,7 @@ public sealed class LoginViewModel : INotifyPropertyChanged
             var settings = await _settingsService.LoadAsync();
             settings.ServerUrl = ServerUrl.Trim().TrimEnd('/');
             settings.SyncFolder = SyncFolder.Trim();
+            settings.SyncFolders = ExtraFolders.Where(p => !string.IsNullOrWhiteSpace(p)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             settings.AutoSync = AutoSync;
             settings.AutoStartWindows = AutoStartWindows;
             settings.RememberLogin = RememberLogin;
@@ -225,15 +233,20 @@ public sealed class LoginViewModel : INotifyPropertyChanged
 
             await _syncEngine.RegisterDeviceAsync();
 
-            if (!string.IsNullOrWhiteSpace(settings.SyncFolder) && Directory.Exists(settings.SyncFolder))
+            var folders = AllSyncFolders.Where(Directory.Exists).ToList();
+            if (folders.Count > 0)
             {
-                await _syncEngine.SyncFolderAsync(settings.SyncFolder);
-                await _fileMonitorService.StartAsync(settings.SyncFolder);
-                Status = "Signed in. Synchronizing your folder in the background.";
+                foreach (var folder in folders)
+                {
+                    Directory.CreateDirectory(folder);
+                    await _syncEngine.SyncFolderAsync(folder);
+                    await _fileMonitorService.StartAsync(folder);
+                }
+                Status = $"Signed in. Synchronizing {folders.Count} folder(s) in the background.";
             }
             else
             {
-                Status = "Signed in. Choose a sync folder and sign in again (or save settings) to begin syncing.";
+                Status = "Signed in. Add one or more sync folders, then sign in again to begin syncing.";
             }
         }
         catch (Exception ex)
@@ -251,6 +264,9 @@ public sealed class LoginViewModel : INotifyPropertyChanged
         var settings = await _settingsService.LoadAsync();
         ServerUrl = string.IsNullOrWhiteSpace(settings.ServerUrl) ? ServerUrl : settings.ServerUrl;
         SyncFolder = settings.SyncFolder;
+        ExtraFolders.Clear();
+        foreach (var folder in settings.SyncFolders.Where(p => !string.IsNullOrWhiteSpace(p) && !string.Equals(p, settings.SyncFolder, StringComparison.OrdinalIgnoreCase)))
+            ExtraFolders.Add(folder);
         AutoSync = settings.AutoSync;
         AutoStartWindows = settings.AutoStartWindows;
         RememberLogin = settings.RememberLogin;
@@ -261,11 +277,31 @@ public sealed class LoginViewModel : INotifyPropertyChanged
         FolderPicker?.Invoke();
     }
 
+    private void AddFolder()
+    {
+        FolderPicker?.Invoke();
+        if (string.IsNullOrWhiteSpace(SyncFolder)) return;
+        if (ExtraFolders.Any(p => string.Equals(p, SyncFolder, StringComparison.OrdinalIgnoreCase))) return;
+        ExtraFolders.Add(SyncFolder);
+        OnPropertyChanged(nameof(AllSyncFolders));
+    }
+
+    private void RemoveFolder(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        var match = ExtraFolders.FirstOrDefault(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase));
+        if (match is not null) ExtraFolders.Remove(match);
+        if (string.Equals(SyncFolder, path, StringComparison.OrdinalIgnoreCase))
+            SyncFolder = ExtraFolders.FirstOrDefault() ?? string.Empty;
+        OnPropertyChanged(nameof(AllSyncFolders));
+    }
+
     private async Task SaveSettingsAsync()
     {
         var settings = await _settingsService.LoadAsync();
         settings.ServerUrl = ServerUrl.Trim().TrimEnd('/');
         settings.SyncFolder = SyncFolder.Trim();
+        settings.SyncFolders = ExtraFolders.Where(p => !string.IsNullOrWhiteSpace(p)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         settings.AutoSync = AutoSync;
         settings.AutoStartWindows = AutoStartWindows;
         settings.RememberLogin = RememberLogin;

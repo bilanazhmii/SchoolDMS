@@ -12,8 +12,15 @@ public sealed class AppSettings
 
     /// <summary>
     /// Gets or sets the local folder that will be synchronized.
+    /// Kept for backward compatibility with older settings files.
     /// </summary>
     public string SyncFolder { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets the additional folders that should be synchronized.
+    /// Combined with <see cref="SyncFolder"/> at runtime.
+    /// </summary>
+    public List<string> SyncFolders { get; set; } = [];
 
     /// <summary>
     /// Gets or sets a value indicating whether the client should start with Windows.

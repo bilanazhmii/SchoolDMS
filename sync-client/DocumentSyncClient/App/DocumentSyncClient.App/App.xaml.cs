@@ -72,11 +72,15 @@ public partial class App : System.Windows.Application
         await syncEngine.StartAsync();
         LogStartup("Sync engine started");
 
-        if (!string.IsNullOrWhiteSpace(settings.SyncFolder) && Directory.Exists(settings.SyncFolder))
+        var folders = new[] { settings.SyncFolder }
+            .Concat(settings.SyncFolders ?? [])
+            .Where(p => !string.IsNullOrWhiteSpace(p) && Directory.Exists(p))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        var monitor = _host.Services.GetRequiredService<IFileMonitorService>();
+        foreach (var folder in folders)
         {
-            var monitor = _host.Services.GetRequiredService<IFileMonitorService>();
-            await monitor.StartAsync(settings.SyncFolder);
-            LogStartup("File monitor started");
+            await monitor.StartAsync(folder);
+            LogStartup($"File monitor started for {folder}");
         }
 
         var mainWindow = _host.Services.GetRequiredService<MainWindow>();

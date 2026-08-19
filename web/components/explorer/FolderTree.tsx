@@ -1,31 +1,38 @@
 "use client";
 
-import {
-  FC,
-  useCallback,
-  useState,
-} from 'react';
-
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { FC, useCallback, useState } from 'react';
 
 import { useQuery } from '@tanstack/react-query';
 
-import { ChevronDown, Folder, FolderOpen } from 'lucide-react';
+import { ChevronDown, Folder, FolderOpen, Home } from 'lucide-react';
 
 import { cn } from '../../lib/utils';
+import { useExplorerContext } from '../../providers/explorer-provider';
 import { fetchFolderContents, fetchRootFolders } from '../../services/explorer';
 import type { FolderItem } from '../../types/explorer';
 import { Skeleton } from '../ui';
 
 const FolderTree: FC = () => {
-  const pathname = usePathname();
+  const { currentFolderId, setCurrentFolderId, setPreviewFile } = useExplorerContext();
   const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
 
   const { data: rootFolders = [], isLoading: rootLoading } = useQuery({
     queryKey: ['explorer', 'root-folders'],
     queryFn: fetchRootFolders,
   });
+
+  const goHome = useCallback(() => {
+    setPreviewFile(null);
+    setCurrentFolderId(null);
+  }, [setCurrentFolderId, setPreviewFile]);
+
+  const openFolder = useCallback(
+    (id: string) => {
+      setPreviewFile(null);
+      setCurrentFolderId(id);
+    },
+    [setCurrentFolderId, setPreviewFile],
+  );
 
   const toggle = useCallback((id: string) => {
     setOpenFolders((prev) => {
@@ -36,20 +43,25 @@ const FolderTree: FC = () => {
     });
   }, []);
 
-  const isActive = useCallback(
-    (folderId: string, depth: number) => {
-      if (depth === 0 && pathname === '/explorer') return true;
-      return pathname === `/explorer/${folderId}`;
-    },
-    [pathname],
-  );
-
   return (
     <div className="p-3 overflow-y-auto">
       <div className="flex items-center gap-2 px-2 py-1.5 mb-2">
         <Folder className="h-4 w-4 text-foreground-faint" />
         <span className="text-2xs font-medium uppercase tracking-wider text-foreground-faint">Folders</span>
       </div>
+      <button
+        type="button"
+        onClick={goHome}
+        className={cn(
+          'mb-1 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors',
+          !currentFolderId
+            ? 'bg-primary-subtle text-primary font-medium'
+            : 'text-foreground-muted hover:text-foreground hover:bg-surface-hover',
+        )}
+      >
+        <Home className="h-4 w-4 shrink-0" />
+        <span>My Files</span>
+      </button>
       <div className="space-y-0.5">
         {rootLoading ? (
           <div className="space-y-1 p-2">
@@ -60,11 +72,12 @@ const FolderTree: FC = () => {
         ) : (
           rootFolders.map((f: FolderItem) => {
             const open = openFolders.has(f.id);
-            const active = isActive(f.id, 0);
+            const active = currentFolderId === f.id;
             return (
               <div key={f.id}>
                 <div className="flex items-center gap-1">
                   <button
+                    type="button"
                     onClick={() => toggle(f.id)}
                     className="p-0.5 rounded hover:bg-surface-hover transition-colors"
                     aria-label={open ? 'Collapse' : 'Expand'}
@@ -76,10 +89,11 @@ const FolderTree: FC = () => {
                       )}
                     />
                   </button>
-                  <Link
-                    href={`/explorer/${f.id}`}
+                  <button
+                    type="button"
+                    onClick={() => openFolder(f.id)}
                     className={cn(
-                      'flex items-center gap-1.5 py-1.5 text-sm rounded-md transition-colors flex-1 truncate',
+                      'flex items-center gap-1.5 py-1.5 text-sm rounded-md transition-colors flex-1 truncate text-left',
                       active
                         ? 'bg-primary-subtle text-primary font-medium'
                         : 'text-foreground-muted hover:text-foreground hover:bg-surface-hover',
@@ -91,16 +105,16 @@ const FolderTree: FC = () => {
                       <Folder className="h-4 w-4 shrink-0" />
                     )}
                     <span className="truncate">{f.name}</span>
-                  </Link>
+                  </button>
                 </div>
-
                 {open && (
                   <div className="ml-4 border-l border-border-subtle">
                     <FolderTreeSub
                       parent={f}
                       openFolders={openFolders}
                       toggle={toggle}
-                      isActive={isActive}
+                      currentFolderId={currentFolderId}
+                      openFolder={openFolder}
                     />
                   </div>
                 )}
@@ -117,10 +131,17 @@ interface FolderTreeSubProps {
   parent: FolderItem;
   openFolders: Set<string>;
   toggle: (id: string) => void;
-  isActive: (id: string, depth: number) => boolean;
+  currentFolderId?: string | null;
+  openFolder: (id: string) => void;
 }
 
-function FolderTreeSub({ parent, openFolders, toggle, isActive }: FolderTreeSubProps) {
+function FolderTreeSub({
+  parent,
+  openFolders,
+  toggle,
+  currentFolderId,
+  openFolder,
+}: FolderTreeSubProps) {
   const { data, isLoading } = useQuery({
     queryKey: ['explorer', 'subfolders', parent.id],
     queryFn: () => fetchFolderContents(parent.id).then((d) => d.folders ?? []),
@@ -129,9 +150,7 @@ function FolderTreeSub({ parent, openFolders, toggle, isActive }: FolderTreeSubP
   });
 
   const subFolders: FolderItem[] = data ?? [];
-  const open = openFolders.has(parent.id);
-
-  if (!open) return null;
+  if (!openFolders.has(parent.id)) return null;
 
   return (
     <div className="py-1 space-y-0.5">
@@ -144,11 +163,12 @@ function FolderTreeSub({ parent, openFolders, toggle, isActive }: FolderTreeSubP
       )}
       {subFolders.map((f: FolderItem) => {
         const subOpen = openFolders.has(f.id);
-        const active = isActive(f.id, 1);
+        const active = currentFolderId === f.id;
         return (
           <div key={f.id}>
             <div className="flex items-center gap-1">
               <button
+                type="button"
                 onClick={() => toggle(f.id)}
                 className="p-0.5 rounded hover:bg-surface-hover transition-colors"
                 aria-label={subOpen ? 'Collapse' : 'Expand'}
@@ -160,10 +180,11 @@ function FolderTreeSub({ parent, openFolders, toggle, isActive }: FolderTreeSubP
                   )}
                 />
               </button>
-              <Link
-                href={`/explorer/${f.id}`}
+              <button
+                type="button"
+                onClick={() => openFolder(f.id)}
                 className={cn(
-                  'flex items-center gap-1.5 py-1 text-sm rounded-md transition-colors flex-1 truncate',
+                  'flex items-center gap-1.5 py-1 text-sm rounded-md transition-colors flex-1 truncate text-left',
                   active
                     ? 'bg-primary-subtle text-primary font-medium'
                     : 'text-foreground-muted hover:text-foreground hover:bg-surface-hover',
@@ -175,16 +196,16 @@ function FolderTreeSub({ parent, openFolders, toggle, isActive }: FolderTreeSubP
                   <Folder className="h-3.5 w-3.5 shrink-0" />
                 )}
                 <span className="truncate">{f.name}</span>
-              </Link>
+              </button>
             </div>
-
             {subOpen && (
               <div className="ml-4 border-l border-border-subtle">
                 <FolderTreeSub
                   parent={f}
                   openFolders={openFolders}
                   toggle={toggle}
-                  isActive={isActive}
+                  currentFolderId={currentFolderId}
+                  openFolder={openFolder}
                 />
               </div>
             )}

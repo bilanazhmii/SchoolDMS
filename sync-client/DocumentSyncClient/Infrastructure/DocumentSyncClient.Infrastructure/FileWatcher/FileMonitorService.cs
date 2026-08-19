@@ -25,7 +25,7 @@ public sealed class FileMonitorService : IFileMonitorService
         ".bak"
     };
 
-    private FileSystemWatcher? _watcher;
+    private readonly List<FileSystemWatcher> _watchers = [];
     private CancellationTokenSource? _cts;
     private Task? _processingTask;
 
@@ -51,28 +51,39 @@ public sealed class FileMonitorService : IFileMonitorService
             throw new DirectoryNotFoundException($"The monitoring root '{rootPath}' was not found.");
         }
 
-        _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        _watcher = new FileSystemWatcher(rootPath)
+        _cts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        if (_watchers.Any(w => string.Equals(w.Path, rootPath, StringComparison.OrdinalIgnoreCase)))
+        {
+            return Task.CompletedTask;
+        }
+
+        var watcher = new FileSystemWatcher(rootPath)
         {
             IncludeSubdirectories = true,
             NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.CreationTime
         };
 
-        _watcher.Created += OnChanged;
-        _watcher.Deleted += OnChanged;
-        _watcher.Changed += OnChanged;
-        _watcher.Renamed += OnRenamed;
-        _watcher.Error += OnError;
-        _watcher.EnableRaisingEvents = true;
+        watcher.Created += OnChanged;
+        watcher.Deleted += OnChanged;
+        watcher.Changed += OnChanged;
+        watcher.Renamed += OnRenamed;
+        watcher.Error += OnError;
+        watcher.EnableRaisingEvents = true;
+        _watchers.Add(watcher);
 
-        _processingTask = Task.Run(() => DrainDebouncedEventsAsync(_cts.Token), CancellationToken.None);
+        _processingTask ??= Task.Run(() => DrainDebouncedEventsAsync(_cts.Token), CancellationToken.None);
         return Task.CompletedTask;
     }
 
     /// <inheritdoc />
     public Task StopAsync(CancellationToken cancellationToken = default)
     {
-        _watcher?.Dispose();
+        foreach (var watcher in _watchers)
+        {
+            watcher.EnableRaisingEvents = false;
+            watcher.Dispose();
+        }
+        _watchers.Clear();
         _cts?.Cancel();
         return Task.CompletedTask;
     }
@@ -183,11 +194,12 @@ public sealed class FileMonitorService : IFileMonitorService
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (_watcher is not null)
+        foreach (var watcher in _watchers)
         {
-            _watcher.EnableRaisingEvents = false;
-            _watcher.Dispose();
+            watcher.EnableRaisingEvents = false;
+            watcher.Dispose();
         }
+        _watchers.Clear();
 
         _cts?.Cancel();
         if (_processingTask is not null)

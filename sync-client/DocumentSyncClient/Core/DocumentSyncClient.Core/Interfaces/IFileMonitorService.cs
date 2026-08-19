@@ -6,7 +6,8 @@ namespace DocumentSyncClient.Core.Interfaces;
 public interface IFileMonitorService : IAsyncDisposable
 {
     /// <summary>
-    /// Starts watching the supplied root folder.
+    /// Starts watching the supplied root folder. Calling again with another
+    /// path adds a second watcher so multiple folders can be monitored.
     /// </summary>
     Task StartAsync(string? rootPath = null, CancellationToken cancellationToken = default);
 

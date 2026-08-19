@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 
 import { useQuery } from '@tanstack/react-query';
 
@@ -10,6 +10,7 @@ import {
   useExplorerContext,
 } from '../../providers/explorer-provider';
 import { fetchFolderContents } from '../../services/explorer';
+import { createShareLink, sharePageUrl } from '../../services/sharing';
 import type { FolderItem } from '../../types/explorer';
 import Breadcrumb from '../breadcrumb';
 import { Skeleton } from '../ui';
@@ -43,9 +44,27 @@ const ExplorerInner: React.FC = () => {
     setCurrentFolderId(folder.id);
   };
 
-  const previewUrl = previewFile
-    ? `${window.location.origin}/files/${previewFile.id}/download`
-    : undefined;
+  const [shareUrl, setShareUrl] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!previewFile?.id) {
+      setShareUrl(undefined);
+      return;
+    }
+    createShareLink(previewFile.id, 'VIEW')
+      .then((link) => {
+        if (cancelled) return;
+        const path = sharePageUrl(link.publicToken);
+        setShareUrl(`${window.location.origin}${path}`);
+      })
+      .catch(() => {
+        if (!cancelled) setShareUrl(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [previewFile?.id]);
 
   return (
     <div className="grid grid-cols-12 gap-0">
@@ -93,7 +112,7 @@ const ExplorerInner: React.FC = () => {
             <VersionHistoryPanel fileId={previewFile?.id} />
           </div>
           <div className="rounded-lg border border-border bg-card p-4">
-            <QRPanel fileUrl={previewUrl} />
+            <QRPanel fileUrl={shareUrl} />
           </div>
         </div>
       </aside>
