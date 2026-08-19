@@ -32,7 +32,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   }
 
   try {
-    const response = await fetch(`${BACKEND.replace(/\/$/, '')}/drive/connect`, {
+    // Backend NestJS does not use a global /api prefix. Accept an accidentally
+    // configured /api suffix in Vercel, but remove it before forwarding.
+    const backendBase = BACKEND.replace(/\/+$/, '').replace(/\/api$/i, '');
+    const response = await fetch(`${backendBase}/drive/connect`, {
       headers: { Authorization: `Bearer ${token}` },
       redirect: 'manual',
     });
