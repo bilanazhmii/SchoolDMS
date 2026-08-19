@@ -16,7 +16,7 @@ namespace DocumentSyncClient.App;
 /// <summary>
 /// Application startup class.
 /// </summary>
-public partial class App : Application
+public partial class App : System.Windows.Application
 {
     private IHost? _host;
     private static readonly string StartupLogPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DocumentSyncClient", "startup.log");
@@ -39,7 +39,7 @@ public partial class App : Application
 
         DispatcherUnhandledException += (_, args) =>
         {
-            MessageBox.Show($"The sync client recovered from an error:\n\n{args.Exception.Message}", "DocumentSyncClient", MessageBoxButton.OK, MessageBoxImage.Warning);
+            System.Windows.MessageBox.Show($"The sync client recovered from an error:\n\n{args.Exception.Message}", "DocumentSyncClient", MessageBoxButton.OK, MessageBoxImage.Warning);
             args.Handled = true;
         };
 
@@ -88,7 +88,7 @@ public partial class App : Application
         catch (Exception ex)
         {
             LogStartup($"Startup failed: {ex}");
-            MessageBox.Show($"The sync client could not start its background services.\n\n{ex.Message}\n\nYou can still open the app and correct settings.", "DocumentSyncClient", MessageBoxButton.OK, MessageBoxImage.Warning);
+            System.Windows.MessageBox.Show($"The sync client could not start its background services.\n\n{ex.Message}\n\nYou can still open the app and correct settings.", "DocumentSyncClient", MessageBoxButton.OK, MessageBoxImage.Warning);
             var mainWindow = _host?.Services.GetService<MainWindow>();
             mainWindow?.Show();
         }

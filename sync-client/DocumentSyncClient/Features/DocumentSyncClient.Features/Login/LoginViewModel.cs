@@ -160,7 +160,7 @@ public sealed class LoginViewModel : INotifyPropertyChanged
                 ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(result.ExpiresIn)
             });
 
-            Status = "Signed in successfully.";
+            Status = "Signed in successfully. You can close this window; synchronization will continue in the background.";
         }
         catch (Exception ex)
         {
