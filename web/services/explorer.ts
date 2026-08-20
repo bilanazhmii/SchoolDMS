@@ -165,6 +165,11 @@ export async function deleteItem(itemId: string) {
   return unwrap(data);
 }
 
+export async function deleteItems(itemIds: string[]) {
+  const { data } = await api.delete('/files/bulk', { data: { ids: itemIds } });
+  return unwrap<{ requested: number; deleted: number; missing: string[] }>(data);
+}
+
 export async function restoreItem(itemId: string) {
   const { data } = await api.post(`/files/${itemId}/restore`);
   return unwrap(data);

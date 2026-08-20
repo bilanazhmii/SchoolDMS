@@ -135,6 +135,15 @@ export class FileController {
     });
   }
 
+  @Delete('bulk')
+  @ApiOperation({ summary: 'Soft delete multiple files atomically' })
+  async removeMany(
+    @CurrentUser() user: AuthenticatedProfile,
+    @Body() body: { ids?: string[] },
+  ) {
+    return { success: true, data: await this.service.softDeleteMany(user.id, Array.isArray(body.ids) ? body.ids : []) };
+  }
+
   @Delete('by-path')
   @ApiOperation({ summary: 'Soft delete file by synchronized relative path' })
   async removeByPath(

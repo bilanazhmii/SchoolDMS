@@ -7,7 +7,7 @@ import { CheckSquare, Copy, FolderPlus, LayoutGrid, List, Move, RefreshCw, Searc
 import { cn } from '../../lib/utils';
 import api from '../../lib/axios';
 import { useExplorer } from '../../hooks/useExplorer';
-import { copyFolder, copyItem, createFolder, deleteFolder, deleteItem, moveFolder, moveItem, searchExplorer, uploadFiles } from '../../services/explorer';
+import { copyFolder, copyItem, createFolder, deleteFolder, deleteItem, deleteItems, moveFolder, moveItem, searchExplorer, uploadFiles } from '../../services/explorer';
 import type { FileItem, FolderItem } from '../../types/explorer';
 import MoveDialog from './MoveDialog';
 
@@ -57,15 +57,25 @@ const Toolbar: FC<{ folderId?: string; items: ExplorerItem[] }> = ({ folderId, i
     try {
       setBusy(true);
       setStatus(null);
-      await Promise.all(targets.map((item) => {
-        const isFile = 'mimeType' in item;
-        if (action === 'copy') return isFile ? copyItem(item.id, folderId) : copyFolder(item.id);
-        if (action === 'move') return isFile ? moveItem(item.id, destination ?? undefined) : moveFolder(item.id, destination ?? null);
-        return isFile ? deleteItem(item.id) : deleteFolder(item.id);
-      }));
-      clearSelection();
-      refresh();
-      setStatus({ type: 'success', text: `${targets.length} item(s) ${action === 'copy' ? 'copied' : action === 'move' ? 'moved' : 'moved to Trash'}.` });
+      if (action === 'delete') {
+        const fileIds = targets.filter((item): item is FileItem => 'mimeType' in item).map((item) => item.id);
+        const folderTargets = targets.filter((item): item is FolderItem => !('mimeType' in item));
+        const result = fileIds.length ? await deleteItems(fileIds) : { deleted: 0, missing: [] as string[] };
+        if (folderTargets.length) await Promise.all(folderTargets.map((folder) => deleteFolder(folder.id)));
+        clearSelection();
+        refresh();
+        const missingText = result.missing.length ? ` ${result.missing.length} item(s) were already missing.` : '';
+        setStatus({ type: 'success', text: `${result.deleted + folderTargets.length} item(s) moved to Trash.${missingText}` });
+      } else {
+        await Promise.all(targets.map((item) => {
+          const isFile = 'mimeType' in item;
+          if (action === 'copy') return isFile ? copyItem(item.id, folderId) : copyFolder(item.id);
+          return isFile ? moveItem(item.id, destination ?? undefined) : moveFolder(item.id, destination ?? null);
+        }));
+        clearSelection();
+        refresh();
+        setStatus({ type: 'success', text: `${targets.length} item(s) ${action === 'copy' ? 'copied' : 'moved'}.` });
+      }
       if (action === 'move') setMoveOpen(false);
     } catch (error) {
       setStatus({ type: 'error', text: error instanceof Error ? error.message : 'Bulk action failed.' });

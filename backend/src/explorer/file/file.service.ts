@@ -309,6 +309,47 @@ export class FileService {
     return { id: deleted.id, name: deleted.name, deletedAt: deleted.deletedAt };
   }
 
+  async softDeleteMany(profileId: string, ids: string[]) {
+    const requestedIds = [...new Set(ids.filter((id) => typeof id === 'string' && id.trim()))];
+    if (!requestedIds.length) return { requested: 0, deleted: 0, missing: [] as string[] };
+
+    const files = await this.prisma.file.findMany({
+      where: { id: { in: requestedIds }, ownerId: profileId, deletedAt: null },
+    });
+    const foundIds = new Set(files.map((file) => file.id));
+    const missing = requestedIds.filter((id) => !foundIds.has(id));
+    if (!files.length) return { requested: requestedIds.length, deleted: 0, missing };
+
+    const deletedAt = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.file.updateMany({
+        where: { id: { in: files.map((file) => file.id) }, ownerId: profileId, deletedAt: null },
+        data: { deletedAt },
+      });
+
+      const existingTrash = await tx.trash.findMany({
+        where: { profileId, fileId: { in: files.map((file) => file.id) }, restoredAt: null },
+        select: { fileId: true },
+      });
+      const existingIds = new Set(existingTrash.map((entry) => entry.fileId).filter(Boolean));
+      const newTrash = files
+        .filter((file) => !existingIds.has(file.id))
+        .map((file) => ({ profileId, fileId: file.id, deletedAt }));
+      if (newTrash.length) await tx.trash.createMany({ data: newTrash });
+    });
+
+    await Promise.allSettled(files.map((file) => this.audit.log(profileId, 'DELETE', 'FILE', file.id, { name: file.name })));
+    await Promise.allSettled(files.filter((file) => file.googleDriveFileId).map(async (file) => {
+      try {
+        await this.drive.trashFileForProfile(profileId, file.googleDriveFileId as string);
+      } catch (error) {
+        this.logger.warn(`Google Drive bulk trash failed for ${file.id}`, error as Error);
+      }
+    }));
+
+    return { requested: requestedIds.length, deleted: files.length, missing };
+  }
+
   async softDeleteByRelativePath(profileId: string, relativePath: string) {
     const normalized = `/${relativePath.replace(/\\/g, '/').replace(/^\/+/, '')}`;
     const file = await this.prisma.file.findFirst({
