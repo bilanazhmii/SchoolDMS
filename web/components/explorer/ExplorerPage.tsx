@@ -110,7 +110,7 @@ const ExplorerInner: React.FC = () => {
             ]}
           />
         </div>
-        <Toolbar folderId={currentFolderId ?? undefined} />
+        <Toolbar folderId={currentFolderId ?? undefined} items={[...folders, ...files]} />
 
         {isError ? (
           <ErrorState onRetry={() => refetch()} />

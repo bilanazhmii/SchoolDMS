@@ -466,6 +466,9 @@ export class DriveService implements OnModuleInit {
     const rootFolderId = await this.ensureRootFolder(profileId, token);
     if (!rootFolderId) return { connected: true, created: 0, skipped: 0 };
 
+    const oauth2 = this.createOAuthClient();
+    oauth2.setCredentials({ access_token: token });
+    const drive = google.drive({ version: 'v3', auth: oauth2 });
     const folders = await this.prisma.folder.findMany({
       where: { ownerId: profileId, deletedAt: null },
       orderBy: { relativePath: 'asc' },
@@ -478,10 +481,17 @@ export class DriveService implements OnModuleInit {
         const parentId = folder.parentFolderId
           ? driveIds.get(folder.parentFolderId) ?? (await this.prisma.folder.findUnique({ where: { id: folder.parentFolderId }, select: { googleDriveFolderId: true } }))?.googleDriveFolderId ?? rootFolderId
           : rootFolderId;
-        const driveFolderId = folder.googleDriveFolderId ?? await this.createFolderForProfile(profileId, folder.name, parentId);
-        if (folder.googleDriveFolderId) {
-          await this.moveFileForProfile(profileId, folder.googleDriveFolderId, parentId);
+        let driveFolderId = folder.googleDriveFolderId;
+        if (driveFolderId) {
+          try {
+            const remote = await drive.files.get({ fileId: driveFolderId, fields: 'id, trashed, mimeType' });
+            if (remote.data.trashed || remote.data.mimeType !== DRIVE_FOLDER_MIME) driveFolderId = null;
+          } catch {
+            driveFolderId = null;
+          }
         }
+        if (!driveFolderId) driveFolderId = await this.createFolderForProfile(profileId, folder.name, parentId);
+        if (driveFolderId) await this.moveFileForProfile(profileId, driveFolderId, parentId);
         if (!driveFolderId) {
           skipped++;
           continue;
@@ -507,8 +517,11 @@ export class DriveService implements OnModuleInit {
     if (!token) return { connected: false, uploaded: 0, folders: 0, skipped: 0 };
     const folderResult = await this.pushFoldersSync(profileId);
 
+    const oauth2 = this.createOAuthClient();
+    oauth2.setCredentials({ access_token: token });
+    const drive = google.drive({ version: 'v3', auth: oauth2 });
     const files = await this.prisma.file.findMany({
-      where: { ownerId: profileId, deletedAt: null, googleDriveFileId: null },
+      where: { ownerId: profileId, deletedAt: null },
       orderBy: { updatedAt: 'asc' },
     });
     let uploaded = 0;
@@ -516,6 +529,14 @@ export class DriveService implements OnModuleInit {
 
     for (const file of files) {
       try {
+        if (file.googleDriveFileId) {
+          try {
+            const remote = await drive.files.get({ fileId: file.googleDriveFileId, fields: 'id, trashed, mimeType' });
+            if (!remote.data.trashed && remote.data.mimeType !== DRIVE_FOLDER_MIME) continue;
+          } catch {
+            // Re-upload below when the stored Drive ID is stale or deleted.
+          }
+        }
         const latest = await this.prisma.fileVersion.findFirst({
           where: { fileId: file.id },
           orderBy: { versionNumber: 'desc' },

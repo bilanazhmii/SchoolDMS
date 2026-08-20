@@ -93,3 +93,11 @@ Explorer view state is now shared through `ExplorerProvider`, so the grid/list t
 The three-dot menu now has a real trigger and target-aware actions. Rename calls file or folder rename endpoints, copy duplicates files or recursively copies folders, and delete soft-deletes the target. File/folder rename and delete update backend relative paths and attempt the corresponding Google Drive metadata operation. Manual sync displays folder/file reconciliation counts.
 
 Validation: Prisma generation, backend build, 3 test suites with 6 tests, and web build all pass. Deploy the latest backend to Railway and frontend to Vercel, then run `Sync Drive` once to migrate the account to `My Sync` and reconcile existing items.
+
+## Modern selection and My Sync push reliability
+
+The selection workflow now has an always-visible `Select all` control, a selected count, a clear-selection control, and a bulk action toolbar with labeled `Copy`, `Move`, and `Delete` buttons. Selection is shared between the grid, list, and toolbar. The current visible folder/file set is used for Select All, and every bulk operation refreshes explorer data and clears the selection after success.
+
+The My Sync push path now reconciles all local/backend files rather than filtering only rows with a null Drive ID. A stored Drive ID is checked; stale, deleted, or invalid IDs are re-uploaded. Folder IDs receive the same validation and recreation behavior. This addresses the case where the backend believes items are synced while the actual My Sync Drive folder is empty.
+
+Final validation passed: Prisma generation, backend build, 3 test suites with 6 tests, web build, and `git diff --check`. The connected browser could not verify Drive contents because the Drive navigation request timed out with HTTP 504, so production verification must be done after redeploy by pressing Sync Drive and confirming the returned folder/upload counts.

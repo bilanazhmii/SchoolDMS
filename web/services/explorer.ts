@@ -131,6 +131,11 @@ export async function renameFolder(folderId: string, name: string) {
   return unwrap(data);
 }
 
+export async function moveFolder(folderId: string, parentFolderId?: string | null) {
+  const { data } = await api.patch(`/folders/${folderId}`, { parentFolderId: parentFolderId ?? null });
+  return unwrap(data);
+}
+
 export async function deleteFolder(folderId: string) {
   const { data } = await api.delete(`/folders/${folderId}`);
   return unwrap(data);

@@ -13,5 +13,5 @@ export function useExplorer() {
 
   const clearSelection = useCallback(() => setSelection([]), [setSelection]);
 
-  return { view, setView, sort, setSort, selected: selection, toggleSelect, clearSelection };
+  return { view, setView, sort, setSort, selected: selection, setSelection, toggleSelect, clearSelection };
 }
