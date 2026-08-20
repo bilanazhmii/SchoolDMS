@@ -1,6 +1,6 @@
 "use client";
 
-import { FC } from 'react';
+import { FC, useEffect, useState } from 'react';
 
 import { motion } from 'framer-motion';
 
@@ -15,6 +15,7 @@ import {
   Star,
 } from 'lucide-react';
 
+import api from '../../lib/axios';
 import { cn } from '../../lib/utils';
 import { useExplorerContext } from '../../providers/explorer-provider';
 import type { FileItem, FolderItem } from '../../types/explorer';
@@ -136,10 +137,7 @@ const GridView: FC<{
               </div>
             )}
 
-            {/* File icon */}
-            <div className="mb-3 flex h-14 items-center justify-center rounded-md bg-surface-active">
-              <Icon className="h-7 w-7 text-foreground-muted" />
-            </div>
+            <FileThumbnail file={f} fallback={<Icon className="h-7 w-7 text-foreground-muted" />} />
 
             {/* Metadata */}
             <div className="min-w-0">
@@ -153,6 +151,36 @@ const GridView: FC<{
           </motion.div>
         );
       })}
+    </div>
+  );
+};
+
+const FileThumbnail: FC<{ file: FileItem; fallback: React.ReactNode }> = ({ file, fallback }) => {
+  const [src, setSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!file.mimeType?.startsWith('image/')) return;
+    let mounted = true;
+    let objectUrl: string | null = null;
+    api.get(`/files/${file.id}/stream`, { responseType: 'blob' })
+      .then((response) => {
+        if (!mounted) return;
+        objectUrl = URL.createObjectURL(response.data);
+        setSrc(objectUrl);
+      })
+      .catch(() => setSrc(null));
+    return () => {
+      mounted = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [file.id, file.mimeType]);
+
+  return (
+    <div className="mb-3 flex h-32 items-center justify-center overflow-hidden rounded-md bg-surface-active">
+      {src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={src} alt={file.name} className="h-full w-full object-cover" />
+      ) : fallback}
     </div>
   );
 };

@@ -216,6 +216,7 @@ profileId String @db.Uuid
 googleUserId String @db.VarChar(255)
 email String @db.VarChar(255)
 rootFolderId String? @db.VarChar(255)
+driveStartPageToken String? @db.Text
 refreshToken String? @db.Text
 refreshTokenExp DateTime?
 connectionStatus ConnectionStatus @default(CONNECTED)

@@ -32,6 +32,11 @@ export function mapFile(raw: Record<string, unknown>): FileItem {
     modifiedAt: (raw.updatedAt as string) ?? (raw.createdAt as string) ?? '',
     createdAt: (raw.createdAt as string) ?? '',
     folderId: (raw.folderId as string) ?? null,
+    relativePath: (raw.relativePath as string) ?? null,
+    extension: (raw.extension as string) ?? null,
+    googleDriveFileId: (raw.googleDriveFileId as string) ?? null,
+    syncStatus: (raw.syncStatus as string) ?? null,
+    lastSyncedAt: (raw.lastSyncedAt as string) ?? null,
     favorite: Boolean(raw.favorite),
     trashed: Boolean(raw.deletedAt),
   };
@@ -43,6 +48,9 @@ export function mapFolder(raw: Record<string, unknown>): FolderItem {
     id: String(raw.id),
     name: String(raw.name ?? ''),
     parentId: (raw.parentFolderId as string) ?? null,
+    relativePath: (raw.relativePath as string) ?? null,
+    googleDriveFolderId: (raw.googleDriveFolderId as string) ?? null,
+    syncStatus: (raw.syncStatus as string) ?? null,
     createdAt: (raw.createdAt as string) ?? '',
   };
 }
@@ -152,13 +160,7 @@ export async function fetchVersions(fileId: string): Promise<FileVersion[]> {
 
 export async function fetchPreviewUrl(fileId: string): Promise<{ url: string }> {
   const { data } = await api.get(`/files/${fileId}/preview`);
-  const payload = unwrap<{
-    previewUrl?: string;
-    streamUrl?: string;
-    drive?: boolean;
-    googleDriveFileId?: string;
-    accessToken?: string;
-  }>(data);
-  const url = payload?.streamUrl || `/files/${fileId}/stream`;
+  const payload = unwrap<{ previewUrl?: string; streamUrl?: string }>(data);
+  const url = payload?.previewUrl || payload?.streamUrl || `/files/${fileId}/stream`;
   return { url };
 }

@@ -99,7 +99,9 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
             FilePath = path,
             RelativePath = BuildRelativePath(path, settings),
             Operation = operation,
-            Payload = payload,
+            Payload = operation == SyncOperationType.Rename && !string.IsNullOrWhiteSpace(payload)
+                ? BuildRelativePath(payload, settings)
+                : payload,
             NextAttemptAt = DateTimeOffset.UtcNow
         };
 
@@ -425,13 +427,16 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
     private async Task DeleteFileAsync(HttpClient client, SyncJob job, CancellationToken cancellationToken)
     {
         var fileId = ExtractFileId(job.Payload);
+        HttpResponseMessage response;
         if (string.IsNullOrWhiteSpace(fileId))
         {
-            _logger.LogInformation("No remote id recorded for {Path}; nothing to delete remotely.", job.FilePath);
-            return;
+            var relative = Uri.EscapeDataString(job.RelativePath.Replace('\\', '/'));
+            response = await client.DeleteAsync($"/files/by-path?relativePath={relative}", cancellationToken);
         }
-
-        using var response = await client.DeleteAsync($"/files/{fileId}", cancellationToken);
+        else
+        {
+            response = await client.DeleteAsync($"/files/{fileId}", cancellationToken);
+        }
         if (!response.IsSuccessStatusCode)
         {
             throw new HttpRequestException($"Delete failed ({response.StatusCode}): {await response.Content.ReadAsStringAsync(cancellationToken)}");
@@ -441,17 +446,26 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
     private async Task MoveFileAsync(HttpClient client, SyncJob job, CancellationToken cancellationToken)
     {
         var fileId = ExtractFileId(job.Payload);
-        if (string.IsNullOrWhiteSpace(fileId))
+        HttpResponseMessage response;
+        if (string.IsNullOrWhiteSpace(fileId) && job.Operation == SyncOperationType.Rename && !string.IsNullOrWhiteSpace(job.Payload))
         {
-            // No remote reference yet — treat as a fresh upload instead.
+            response = await client.PostAsJsonAsync(
+                "/files/by-path/move",
+                new { oldRelativePath = job.Payload, newRelativePath = job.RelativePath },
+                cancellationToken);
+        }
+        else if (string.IsNullOrWhiteSpace(fileId))
+        {
             await UploadFileAsync(client, job, cancellationToken);
             return;
         }
-
-        using var response = await client.PostAsJsonAsync(
-            $"/files/{fileId}/move",
-            new { toFolderId = (string?)null },
-            cancellationToken);
+        else
+        {
+            response = await client.PostAsJsonAsync(
+                $"/files/{fileId}/move",
+                new { toFolderId = (string?)null },
+                cancellationToken);
+        }
         if (!response.IsSuccessStatusCode)
         {
             throw new HttpRequestException($"Move failed ({response.StatusCode}): {await response.Content.ReadAsStringAsync(cancellationToken)}");

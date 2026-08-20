@@ -61,7 +61,7 @@ export default function PublicSharePage() {
           ) : data?.type === 'file' ? (
             <FileView data={data} token={token} />
           ) : data ? (
-            <FolderView data={data} />
+            <FolderView data={data} token={token} />
           ) : null}
         </div>
       </div>
@@ -83,6 +83,17 @@ function FileView({ data, token }: { data: PublicShareFile; token: string }) {
           </div>
         </div>
       </div>
+
+      {data.file.mimeType?.startsWith('image/') ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={shareDownloadUrl(token)} alt={data.file.name} className="mb-4 max-h-80 w-full rounded border object-contain bg-black/5" />
+      ) : data.file.mimeType?.startsWith('video/') ? (
+        <video src={shareDownloadUrl(token)} controls className="mb-4 w-full rounded bg-black" />
+      ) : data.file.mimeType?.startsWith('audio/') ? (
+        <audio src={shareDownloadUrl(token)} controls className="mb-4 w-full" />
+      ) : data.file.mimeType === 'application/pdf' ? (
+        <iframe src={shareDownloadUrl(token)} title={data.file.name} className="mb-4 h-80 w-full rounded border" />
+      ) : null}
 
       <div className="rounded-md bg-surface-active p-3 text-xs text-foreground-muted space-y-1 mb-4">
         <div className="flex justify-between">
@@ -116,7 +127,7 @@ function FileView({ data, token }: { data: PublicShareFile; token: string }) {
   );
 }
 
-function FolderView({ data }: { data: PublicShareFolder }) {
+function FolderView({ data, token }: { data: PublicShareFolder; token: string }) {
   return (
     <div>
       <div className="flex items-center gap-3 mb-4">
@@ -128,9 +139,24 @@ function FolderView({ data }: { data: PublicShareFolder }) {
           <div className="text-xs text-foreground-muted">{data.folder.files} berkas</div>
         </div>
       </div>
-      <div className="rounded-md bg-surface-active p-3 text-xs text-foreground-muted flex items-center gap-2">
+      <div className="rounded-md bg-surface-active p-3 text-xs text-foreground-muted flex items-center gap-2 mb-4">
         <Link2 className="h-3.5 w-3.5" />
         Folder publik dengan izin {data.permission}
+      </div>
+      <div className="space-y-2">
+        {data.folder.items.length === 0 ? (
+          <div className="text-sm text-foreground-muted">Folder ini belum memiliki file.</div>
+        ) : data.folder.items.map((item) => (
+          <div key={item.id} className="flex items-center justify-between gap-3 rounded border border-border p-3">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium">{item.name}</div>
+              <div className="text-xs text-foreground-muted">{item.mimeType ?? 'File'} · {formatBytes(item.size)}</div>
+            </div>
+            <a href={shareDownloadUrl(token, item.id)} className="shrink-0 rounded border border-border px-3 py-1.5 text-xs hover:bg-surface-hover">
+              Buka / Unduh
+            </a>
+          </div>
+        ))}
       </div>
     </div>
   );

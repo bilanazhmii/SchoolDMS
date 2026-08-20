@@ -82,12 +82,6 @@ export class FileController {
   ) {
     const result = await this.service.download(user.id, id);
 
-    if (result.drive) {
-      // For Google Drive files, return the info for client-side download
-      return res.json({ success: true, data: result });
-    }
-
-    // For local files, stream the buffer
     const buffer = result.buffer as Buffer;
     const fileName = encodeURIComponent(result.fileName);
 
@@ -107,12 +101,6 @@ export class FileController {
   ) {
     const result = await this.service.getStream(user.id, id);
 
-    if (result.drive) {
-      // For Google Drive files, return the info for client-side streaming
-      return res.json({ success: true, data: result });
-    }
-
-    // For local files, pipe the stream
     const stream = result.stream;
     if (!stream) {
       return res
@@ -123,7 +111,7 @@ export class FileController {
     const fileName = encodeURIComponent(result.fileName);
 
     res.setHeader('Content-Type', result.mimeType);
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
 
     stream.pipe(res);
 
@@ -134,6 +122,18 @@ export class FileController {
         res.status(500).json({ success: false, message: 'Stream error' });
       }
     });
+  }
+
+  @Delete('by-path')
+  @ApiOperation({ summary: 'Soft delete file by synchronized relative path' })
+  async removeByPath(
+    @CurrentUser() user: AuthenticatedProfile,
+    @Query('relativePath') relativePath?: string,
+  ) {
+    return {
+      success: true,
+      data: await this.service.softDeleteByRelativePath(user.id, relativePath ?? ''),
+    };
   }
 
   @Delete(':id')
@@ -152,6 +152,22 @@ export class FileController {
     @Param('id') id: string,
   ) {
     return { success: true, data: await this.service.restore(user.id, id) };
+  }
+
+  @Post('by-path/move')
+  @ApiOperation({ summary: 'Rename or move file by synchronized relative path' })
+  async moveByPath(
+    @CurrentUser() user: AuthenticatedProfile,
+    @Body() body: { oldRelativePath?: string; newRelativePath?: string },
+  ) {
+    return {
+      success: true,
+      data: await this.service.moveByRelativePath(
+        user.id,
+        body.oldRelativePath ?? '',
+        body.newRelativePath ?? '',
+      ),
+    };
   }
 
   @Post(':id/move')

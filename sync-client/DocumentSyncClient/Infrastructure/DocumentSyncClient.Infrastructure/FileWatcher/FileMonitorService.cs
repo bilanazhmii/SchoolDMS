@@ -110,7 +110,7 @@ public sealed class FileMonitorService : IFileMonitorService
             return;
         }
 
-        if (!await IsAccessibleAsync(path))
+        if (operation != SyncOperationType.Delete && !await IsAccessibleAsync(path))
         {
             _logger.LogInformation("Skipping pending file event for inaccessible path {Path}", path);
             return;

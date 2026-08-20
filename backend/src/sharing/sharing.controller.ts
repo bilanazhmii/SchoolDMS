@@ -56,4 +56,13 @@ export class SharingController {
   downloadPublic(@Param('token') token: string, @Res() res: Response) {
     return this.sharing.downloadPublic(token, res);
   }
+
+  @Get('share/:token/download/:fileId')
+  downloadPublicFolderFile(
+    @Param('token') token: string,
+    @Param('fileId') fileId: string,
+    @Res() res: Response,
+  ) {
+    return this.sharing.downloadPublic(token, res, fileId);
+  }
 }

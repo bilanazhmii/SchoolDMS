@@ -141,21 +141,28 @@ export class SharingService {
       });
       if (!folder || folder.deletedAt)
         throw new NotFoundException('Folder not found');
-      const files = await this.prisma.file.count({
+      const files = await this.prisma.file.findMany({
         where: { folderId: folder.id, deletedAt: null },
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true, mimeType: true, size: true, updatedAt: true },
       });
       return {
         type: 'folder',
         permission: link.permission,
         expiresAt: link.expiresAt,
-        folder: { id: folder.id, name: folder.name, files },
+        folder: {
+          id: folder.id,
+          name: folder.name,
+          files: files.length,
+          items: files.map((file) => ({ ...file, size: Number(file.size) })),
+        },
       };
     }
 
     throw new NotFoundException('Link has no target');
   }
 
-  async downloadPublic(publicToken: string, res: Response) {
+  async downloadPublic(publicToken: string, res: Response, requestedFileId?: string) {
     const link = await this.resolveActiveLink(publicToken);
 
     if (link.permission !== SharePermission.DOWNLOAD && link.permission !== SharePermission.EDIT && link.permission !== SharePermission.VIEW) {
@@ -169,13 +176,14 @@ export class SharingService {
       throw new ForbiddenException('Download limit reached');
     }
 
-    if (!link.fileId) {
-      throw new BadRequestException('Only file links support direct download');
-    }
+    const targetFileId = link.fileId ?? requestedFileId;
+    const file = targetFileId
+      ? await this.prisma.file.findUnique({ where: { id: targetFileId } })
+      : null;
 
-    const file = await this.prisma.file.findUnique({
-      where: { id: link.fileId },
-    });
+    if (link.folderId && (!requestedFileId || !file || file.folderId !== link.folderId)) {
+      throw new NotFoundException('Shared file is not inside this folder');
+    }
     if (!file || file.deletedAt) throw new NotFoundException('File not found');
 
     const latestVersion = await this.prisma.fileVersion.findFirst({

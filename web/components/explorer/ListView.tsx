@@ -39,6 +39,15 @@ const ListView: FC<{
     return `${(size / (1024 * 1024)).toFixed(1)} MB`;
   }
 
+  function formatSyncStatus(status?: string | null): string {
+    if (status === 'SYNCED') return 'Synced';
+    if (status === 'FAILED') return 'Failed';
+    if (status === 'CONFLICT') return 'Conflict';
+    if (status === 'LOCAL_ONLY') return 'Local only';
+    if (status === 'REMOTE_ONLY') return 'Remote only';
+    return 'Pending';
+  }
+
   function formatDate(date: string): string {
     if (!date) return '';
     return date.slice(0, 10);
@@ -155,8 +164,11 @@ const ListView: FC<{
                 </td>
                 <td className="px-3 py-2.5 hidden lg:table-cell">
                   <span className="inline-flex items-center gap-1.5 text-2xs text-foreground-muted">
-                    <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                    Synced
+                    <span className={cn(
+                      'h-1.5 w-1.5 rounded-full',
+                      f.syncStatus === 'SYNCED' ? 'bg-success' : f.syncStatus === 'FAILED' || f.syncStatus === 'CONFLICT' ? 'bg-danger' : 'bg-warning',
+                    )} />
+                    {formatSyncStatus(f.syncStatus)}
                   </span>
                 </td>
                 <td className="px-3 py-2.5 w-8">

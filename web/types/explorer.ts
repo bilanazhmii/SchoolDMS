@@ -8,6 +8,11 @@ export type FileItem = {
   modifiedAt: string;
   createdAt: string;
   folderId?: ID | null;
+  relativePath?: string | null;
+  extension?: string | null;
+  googleDriveFileId?: string | null;
+  syncStatus?: string | null;
+  lastSyncedAt?: string | null;
   favorite?: boolean;
   trashed?: boolean;
 };
@@ -16,6 +21,9 @@ export type FolderItem = {
   id: ID;
   name: string;
   parentId?: ID | null;
+  relativePath?: string | null;
+  googleDriveFolderId?: string | null;
+  syncStatus?: string | null;
   createdAt: string;
 };
 

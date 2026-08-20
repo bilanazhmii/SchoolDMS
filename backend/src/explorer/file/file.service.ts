@@ -1,3 +1,6 @@
+import crypto from 'crypto';
+import { Readable } from 'stream';
+
 import {
   BadRequestException,
   Injectable,
@@ -93,6 +96,60 @@ export class FileService {
       }
     }
 
+    const contentHash = crypto.createHash('sha256').update(fileMeta.buffer as Buffer).digest('hex');
+    const existing = await this.prisma.file.findFirst({
+      where: { ownerId: profileId, relativePath, deletedAt: null },
+    });
+    if (existing) {
+      const latestExistingVersion = await this.prisma.fileVersion.findFirst({
+        where: { fileId: existing.id },
+        orderBy: { versionNumber: 'desc' },
+      });
+      if (existing.sha256 === contentHash || latestExistingVersion?.sha256 === contentHash) {
+        return existing;
+      }
+      const versionNumber = existing.versionNumber + 1;
+      const storagePath = `files/${existing.id}/v${versionNumber}`;
+      await this.storage.upload(fileMeta.buffer, storagePath, fileMeta.mimeType);
+      const updated = await this.prisma.$transaction(async (tx) => {
+        await tx.fileVersion.create({
+          data: {
+            fileId: existing.id,
+            versionNumber,
+            size: fileMeta.size,
+            mimeType: fileMeta.mimeType,
+            storagePath,
+            sha256: contentHash,
+            syncStatus: 'SYNCED',
+            lastSyncedAt: new Date(),
+          },
+        });
+        return tx.file.update({
+          where: { id: existing.id },
+          data: {
+            name: sanitizedFilename,
+            size: fileMeta.size,
+            mimeType: fileMeta.mimeType,
+            versionNumber,
+            sha256: contentHash,
+            syncStatus: 'PENDING',
+          },
+        });
+      });
+      try {
+        if (existing.googleDriveFileId) {
+          await this.drive.updateFileForProfile(profileId, existing.googleDriveFileId, {
+            name: sanitizedFilename,
+            mimeType: fileMeta.mimeType,
+            buffer: fileMeta.buffer as Buffer,
+          });
+        }
+      } catch (error) {
+        this.logger.warn(`Google Drive update failed for ${existing.id}`, error as Error);
+      }
+      return updated;
+    }
+
     // Create file record and initial version with storage
     const created = await this.prisma.$transaction(async (tx) => {
       const file = await tx.file.create({
@@ -103,6 +160,9 @@ export class FileService {
           size: fileMeta.size,
           mimeType: fileMeta.mimeType,
           relativePath,
+          sha256: contentHash,
+          syncStatus: 'SYNCED',
+          lastSyncedAt: new Date(),
         },
       });
 
@@ -122,6 +182,9 @@ export class FileService {
           size: fileMeta.size,
           mimeType: fileMeta.mimeType,
           storagePath,
+          sha256: contentHash,
+          syncStatus: 'SYNCED',
+          lastSyncedAt: new Date(),
         },
       });
 
@@ -137,15 +200,22 @@ export class FileService {
     // Keep the backend storage authoritative, then mirror to Drive when the
     // user has connected Google Drive. A Drive outage must not lose the upload.
     try {
-      const driveFile = await this.drive.uploadFileForProfile(profileId, {
-        name: created.name,
-        mimeType: fileMeta.mimeType,
-        buffer: fileMeta.buffer as Buffer,
-      });
+      const folder = created.folderId
+        ? await this.prisma.folder.findUnique({ where: { id: created.folderId } })
+        : null;
+      const driveFile = await this.drive.uploadFileForProfile(
+        profileId,
+        {
+          name: created.name,
+          mimeType: fileMeta.mimeType,
+          buffer: fileMeta.buffer as Buffer,
+        },
+        folder?.googleDriveFolderId,
+      );
       if (driveFile?.id) {
         return this.prisma.file.update({
           where: { id: created.id },
-          data: { googleDriveFileId: driveFile.id },
+          data: { googleDriveFileId: driveFile.id, syncStatus: 'SYNCED', lastSyncedAt: new Date() },
         });
       }
     } catch (error) {
@@ -212,7 +282,23 @@ export class FileService {
       data: { profileId, fileId: id, deletedAt: new Date() },
     });
     await this.audit.log(profileId, 'DELETE', 'FILE', id, { name: file.name });
+    try {
+      if (file.googleDriveFileId) {
+        await this.drive.trashFileForProfile(profileId, file.googleDriveFileId);
+      }
+    } catch (error) {
+      this.logger.warn(`Google Drive trash failed for ${id}`, error as Error);
+    }
     return deleted;
+  }
+
+  async softDeleteByRelativePath(profileId: string, relativePath: string) {
+    const normalized = `/${relativePath.replace(/\\/g, '/').replace(/^\/+/, '')}`;
+    const file = await this.prisma.file.findFirst({
+      where: { ownerId: profileId, relativePath: normalized, deletedAt: null },
+    });
+    if (!file) return { missing: true, relativePath: normalized };
+    return this.softDelete(profileId, file.id);
   }
 
   async restore(profileId: string, id: string) {
@@ -241,6 +327,44 @@ export class FileService {
       where: { fileId: id },
       orderBy: { versionNumber: 'desc' },
     });
+  }
+
+  async moveByRelativePath(profileId: string, oldRelativePath: string, newRelativePath: string) {
+    const oldPath = `/${oldRelativePath.replace(/\\/g, '/').replace(/^\/+/, '')}`;
+    const newPath = `/${newRelativePath.replace(/\\/g, '/').replace(/^\/+/, '')}`;
+    const file = await this.prisma.file.findFirst({
+      where: { ownerId: profileId, relativePath: oldPath, deletedAt: null },
+    });
+    if (!file) return { missing: true, relativePath: oldPath };
+
+    const parts = newPath.split('/').filter(Boolean);
+    const name = parts.pop() ?? file.name;
+    const folderId = parts.length > 0
+      ? await this.ensureFolderPath(profileId, `${parts.join('/')}/${name}`)
+      : undefined;
+    const folder = folderId
+      ? await this.prisma.folder.findUnique({ where: { id: folderId } })
+      : null;
+    const relativePath = folder ? `${folder.relativePath}/${name}` : `/${name}`;
+    const moved = await this.prisma.file.update({
+      where: { id: file.id },
+      data: { name, folderId: folderId ?? null, relativePath },
+    });
+    try {
+      if (file.googleDriveFileId) {
+        await this.drive.moveFileForProfile(profileId, file.googleDriveFileId, folder?.googleDriveFolderId ?? null);
+        if (name !== file.name) {
+          const latest = await this.prisma.fileVersion.findFirst({ where: { fileId: file.id }, orderBy: { versionNumber: 'desc' } });
+          if (latest?.storagePath) {
+            const buffer = await this.storage.download(latest.storagePath);
+            await this.drive.updateFileForProfile(profileId, file.googleDriveFileId, { name, mimeType: file.mimeType, buffer });
+          }
+        }
+      }
+    } catch (error) {
+      this.logger.warn(`Google Drive rename/move failed for ${file.id}`, error as Error);
+    }
+    return moved;
   }
 
   async move(
@@ -272,6 +396,20 @@ export class FileService {
       action: 'move',
       toFolderId: toFolderId ?? null,
     });
+    try {
+      if (file.googleDriveFileId) {
+        const destination = toFolderId
+          ? await this.prisma.folder.findUnique({ where: { id: toFolderId } })
+          : null;
+        await this.drive.moveFileForProfile(
+          profileId,
+          file.googleDriveFileId,
+          destination?.googleDriveFolderId ?? null,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(`Google Drive move failed for ${id}`, error as Error);
+    }
     return moved;
   }
 
@@ -359,15 +497,13 @@ export class FileService {
     }
 
     if (file.googleDriveFileId) {
-      const driveInfo = await this.drive.getDriveAccountInfo(profileId);
-      const accessToken = await this.drive.getAccessTokenForProfile(profileId);
       return {
         drive: true,
-        driveInfo,
-        accessToken,
-        googleDriveFileId: file.googleDriveFileId,
+        previewUrl: `/files/${id}/stream`,
+        streamUrl: `/files/${id}/stream`,
         fileName: file.name,
         mimeType: file.mimeType,
+        canPreview: this.canGeneratePreview(file.mimeType),
       };
     }
 
@@ -424,13 +560,13 @@ export class FileService {
       throw new NotFoundException('File version not found');
     }
 
-    // If file is stored in Google Drive
+    // Proxy Google Drive content through the authenticated backend.
     if (file.googleDriveFileId) {
-      const accessToken = await this.drive.getAccessTokenForProfile(profileId);
+      const buffer = await this.drive.downloadFileForProfile(profileId, file.googleDriveFileId);
+      if (!buffer) throw new NotFoundException('Drive file is not available');
       return {
         drive: true,
-        googleDriveFileId: file.googleDriveFileId,
-        accessToken,
+        buffer,
         fileName: file.name,
         mimeType: file.mimeType,
       };
@@ -493,13 +629,13 @@ export class FileService {
       throw new NotFoundException('File version not found');
     }
 
-    // If file is stored in Google Drive, return info for client-side streaming
+    // Proxy Google Drive content through the authenticated backend.
     if (file.googleDriveFileId) {
-      const accessToken = await this.drive.getAccessTokenForProfile(profileId);
+      const buffer = await this.drive.downloadFileForProfile(profileId, file.googleDriveFileId);
+      if (!buffer) throw new NotFoundException('Drive file is not available');
       return {
         drive: true,
-        googleDriveFileId: file.googleDriveFileId,
-        accessToken,
+        stream: Readable.from(buffer),
         fileName: file.name,
         mimeType: file.mimeType,
       };

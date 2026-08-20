@@ -262,23 +262,91 @@ export class DriveService implements OnModuleInit {
   async uploadFileForProfile(
     profileId: string,
     file: { name: string; mimeType: string; buffer: Buffer },
+    parentFolderId?: string | null,
   ) {
     const token = await this.getAccessTokenForProfile(profileId);
     if (!token) return null;
     const oauth2 = this.createOAuthClient();
     oauth2.setCredentials({ access_token: token });
     const drive = google.drive({ version: 'v3', auth: oauth2 });
-    const rootFolderId = await this.ensureRootFolder(profileId, token);
+    const targetFolderId = parentFolderId ?? (await this.ensureRootFolder(profileId, token));
     const result = await drive.files.create({
       requestBody: {
         name: file.name,
         mimeType: file.mimeType,
-        ...(rootFolderId ? { parents: [rootFolderId] } : {}),
+        ...(targetFolderId ? { parents: [targetFolderId] } : {}),
       },
       media: { mimeType: file.mimeType, body: Readable.from(file.buffer) },
       fields: 'id, name, webViewLink',
     });
     return result.data;
+  }
+
+  async updateFileForProfile(
+    profileId: string,
+    googleDriveFileId: string,
+    file: { name: string; mimeType: string; buffer: Buffer },
+  ) {
+    const token = await this.getAccessTokenForProfile(profileId);
+    if (!token) return null;
+    const oauth2 = this.createOAuthClient();
+    oauth2.setCredentials({ access_token: token });
+    const drive = google.drive({ version: 'v3', auth: oauth2 });
+    const result = await drive.files.update({
+      fileId: googleDriveFileId,
+      requestBody: { name: file.name, mimeType: file.mimeType },
+      media: { mimeType: file.mimeType, body: Readable.from(file.buffer) },
+      fields: 'id, name, mimeType, modifiedTime, webViewLink',
+    });
+    return result.data;
+  }
+
+  async moveFileForProfile(
+    profileId: string,
+    googleDriveFileId: string,
+    parentFolderId: string | null,
+  ) {
+    const token = await this.getAccessTokenForProfile(profileId);
+    if (!token) return null;
+    const oauth2 = this.createOAuthClient();
+    oauth2.setCredentials({ access_token: token });
+    const drive = google.drive({ version: 'v3', auth: oauth2 });
+    const current = await drive.files.get({ fileId: googleDriveFileId, fields: 'parents' });
+    const previousParents = (current.data.parents ?? []).join(',');
+    const targetParent = parentFolderId ?? (await this.ensureRootFolder(profileId, token));
+    return drive.files.update({
+      fileId: googleDriveFileId,
+      addParents: targetParent ?? undefined,
+      removeParents: previousParents || undefined,
+      requestBody: {},
+      fields: 'id, parents, modifiedTime',
+    });
+  }
+
+  async trashFileForProfile(profileId: string, googleDriveFileId: string) {
+    const token = await this.getAccessTokenForProfile(profileId);
+    if (!token) return null;
+    const oauth2 = this.createOAuthClient();
+    oauth2.setCredentials({ access_token: token });
+    const drive = google.drive({ version: 'v3', auth: oauth2 });
+    return drive.files.update({
+      fileId: googleDriveFileId,
+      requestBody: { trashed: true },
+      fields: 'id, trashed, modifiedTime',
+    });
+  }
+
+  async downloadFileForProfile(profileId: string, googleDriveFileId: string) {
+    const token = await this.getAccessTokenForProfile(profileId);
+    if (!token) return null;
+    const oauth2 = this.createOAuthClient();
+    oauth2.setCredentials({ access_token: token });
+    const drive = google.drive({ version: 'v3', auth: oauth2 });
+    const result = await drive.files.get(
+      { fileId: googleDriveFileId, alt: 'media' },
+      { responseType: 'arraybuffer' },
+    );
+    return Buffer.from(result.data as ArrayBuffer);
   }
 
   private async ensureRootFolder(profileId: string, accessToken: string) {

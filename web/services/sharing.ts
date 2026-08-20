@@ -34,7 +34,12 @@ export interface PublicShareFolder {
   type: 'folder';
   permission: SharePermission;
   expiresAt: string | null;
-  folder: { id: ID; name: string; files: number };
+  folder: {
+    id: ID;
+    name: string;
+    files: number;
+    items: Array<{ id: ID; name: string; mimeType: string | null; size: number; updatedAt: string }>;
+  };
 }
 
 function unwrap<T>(body: unknown): T {
@@ -58,6 +63,14 @@ export async function createShareLink(
   return unwrap(data);
 }
 
+export async function createFolderShareLink(
+  folderId: string,
+  permission: SharePermission = 'VIEW',
+): Promise<ShareLink> {
+  const { data } = await api.post('/share-links', { folderId, permission });
+  return unwrap(data);
+}
+
 export async function fetchShare(
   token: string,
 ): Promise<PublicShareFile | PublicShareFolder> {
@@ -65,9 +78,10 @@ export async function fetchShare(
   return unwrap(data);
 }
 
-export function shareDownloadUrl(token: string): string {
+export function shareDownloadUrl(token: string, fileId?: string): string {
   const base = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/$/, '');
-  return `${base}/share/${encodeURIComponent(token)}/download`;
+  const suffix = fileId ? `/download/${encodeURIComponent(fileId)}` : '/download';
+  return `${base}/share/${encodeURIComponent(token)}${suffix}`;
 }
 
 export function sharePageUrl(token: string): string {
