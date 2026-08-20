@@ -109,3 +109,11 @@ The attachment showed two related runtime symptoms: repeated `GET /files/:id` re
 Delete is idempotent and avoids duplicate active Trash rows when web actions, Drive reconciliation, or the desktop sync client retry the same operation. Folder deletion cascades its deleted state to descendants and files. Copy now mirrors the copied file to Google Drive immediately; stale Drive IDs are revalidated and re-uploaded when necessary. Rename and move continue to update backend relative paths and attempt Drive metadata changes.
 
 Final source validation passed: Prisma generation, backend build, 3 test suites with 6 tests, web build, and `git diff --check`. A Railway redeploy is required before the production 500 behavior changes. If a 500 remains after redeploy, the new exception filter will put the exact Prisma/Drive stack trace in Railway logs instead of hiding the cause.
+
+## Repeated production 500 diagnosis
+
+The latest attachment confirms that the deployed API still returns HTTP 500 for many `GET /files/:id` calls and also returns 500/400 for some folder/file action requests. The common failure mode was raw Prisma File rows containing BigInt `size` values being returned directly from metadata, upload, copy, move, rename, delete, and folder-content endpoints. Those responses are now explicitly serialized to numeric sizes instead of relying on a global JSON prototype patch.
+
+Folder contents now serialize file sizes explicitly as well. Delete is idempotent and avoids duplicate active Trash rows. Copy, move, and rename return serialized file payloads and update the associated Drive metadata; copy also attempts immediate Drive mirroring. Folder operations update descendant relative paths and Drive parent metadata. The exception filter logs unexpected 5xx stack traces for Railway diagnosis.
+
+Backend and web validation pass after these changes. Because the attachment is from the already-running Railway deployment, the old behavior will remain until the latest backend and frontend are deployed. After deployment, hard-refresh the explorer and verify the response status for `GET /files/{id}` is 200 before testing actions.

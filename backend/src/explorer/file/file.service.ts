@@ -41,6 +41,10 @@ export class FileService {
     this.fileValidator = new FileValidator(validationConfig);
   }
 
+  private serializeFile<T extends { size: bigint | number }>(file: T) {
+    return { ...file, size: Number(file.size) };
+  }
+
   async get(profileId: string, id: string) {
     const file = await this.prisma.file.findUnique({ where: { id } });
     if (!file || file.deletedAt) throw new NotFoundException('File not found');
@@ -110,7 +114,7 @@ export class FileService {
         orderBy: { versionNumber: 'desc' },
       });
       if (existing.sha256 === contentHash || latestExistingVersion?.sha256 === contentHash) {
-        return existing;
+        return this.serializeFile(existing);
       }
       const versionNumber = existing.versionNumber + 1;
       const storagePath = `files/${existing.id}/v${versionNumber}`;
@@ -151,7 +155,7 @@ export class FileService {
       } catch (error) {
         this.logger.warn(`Google Drive update failed for ${existing.id}`, error as Error);
       }
-      return updated;
+      return this.serializeFile(updated);
     }
 
     // Create file record and initial version with storage
@@ -218,15 +222,16 @@ export class FileService {
         created.relativePath,
       );
       if (driveFile?.id) {
-        return this.prisma.file.update({
+        const mirrored = await this.prisma.file.update({
           where: { id: created.id },
           data: { googleDriveFileId: driveFile.id, syncStatus: 'SYNCED', lastSyncedAt: new Date() },
         });
+        return this.serializeFile(mirrored);
       }
     } catch (error) {
       this.logger.warn(`Google Drive mirror failed for ${created.id}`, error as Error);
     }
-    return created;
+    return this.serializeFile(created);
   }
 
   /**
@@ -277,7 +282,7 @@ export class FileService {
     const file = await this.prisma.file.findUnique({ where: { id } });
     if (!file || file.ownerId !== profileId)
       throw new NotFoundException('File not found');
-    if (file.deletedAt) return file;
+    if (file.deletedAt) return this.serializeFile(file);
 
     const deleted = await this.prisma.file.update({
       where: { id },
@@ -293,7 +298,7 @@ export class FileService {
     } catch (error) {
       this.logger.warn(`Google Drive trash failed for ${id}`, error as Error);
     }
-    return deleted;
+    return this.serializeFile(deleted);
   }
 
   async softDeleteByRelativePath(profileId: string, relativePath: string) {
@@ -320,7 +325,7 @@ export class FileService {
       data: { restoredAt: new Date() },
     });
     await this.audit.log(profileId, 'RESTORE', 'FILE', id, { name: file.name });
-    return restored;
+    return this.serializeFile(restored);
   }
 
   async listVersions(profileId: string, id: string) {
@@ -368,7 +373,7 @@ export class FileService {
     } catch (error) {
       this.logger.warn(`Google Drive rename/move failed for ${file.id}`, error as Error);
     }
-    return moved;
+    return this.serializeFile(moved);
   }
 
   async rename(profileId: string, id: string, name: string) {
@@ -382,7 +387,7 @@ export class FileService {
       try { await this.drive.renameFileForProfile(profileId, file.googleDriveFileId, cleanName); } catch (error) { this.logger.warn(`Google Drive rename failed for ${id}`, error as Error); }
     }
     await this.audit.log(profileId, 'UPDATE', 'FILE', id, { action: 'rename', name: cleanName });
-    return renamed;
+    return this.serializeFile(renamed);
   }
 
   async move(
@@ -428,7 +433,7 @@ export class FileService {
     } catch (error) {
       this.logger.warn(`Google Drive move failed for ${id}`, error as Error);
     }
-    return moved;
+    return this.serializeFile(moved);
   }
 
   async copy(
@@ -508,7 +513,8 @@ export class FileService {
         this.logger.warn(`Google Drive copy mirror failed for ${copied.id}`, error as Error);
       }
     }
-    return this.prisma.file.findUnique({ where: { id: copied.id } });
+    const result = await this.prisma.file.findUnique({ where: { id: copied.id } });
+    return result ? this.serializeFile(result) : result;
   }
 
   async preview(profileId: string, id: string) {

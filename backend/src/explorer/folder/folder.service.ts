@@ -68,7 +68,10 @@ export class FolderService {
       skip,
     });
 
-    return { folders, files };
+    return {
+      folders,
+      files: files.map((file) => ({ ...file, size: Number(file.size) })),
+    };
   }
 
   async create(profileId: string, dto: CreateFolderDto) {
