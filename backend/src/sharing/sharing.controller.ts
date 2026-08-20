@@ -52,6 +52,14 @@ export class SharingController {
     return { success: true, data: await this.sharing.getPublic(token) };
   }
 
+  @Post('share/:token/content')
+  async updatePublicContent(
+    @Param('token') token: string,
+    @Body() body: { content?: string },
+  ) {
+    return { success: true, data: await this.sharing.updatePublicText(token, body.content ?? '') };
+  }
+
   @Get('share/:token/preview')
   previewPublic(@Param('token') token: string, @Res() res: Response) {
     return this.sharing.previewPublic(token, res);

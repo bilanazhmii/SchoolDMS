@@ -494,6 +494,7 @@ expiresAt DateTime?
 downloadLimit Int? @default(0)
 downloadCount Int @default(0)
 permission SharePermission @default(VIEW)
+description String? @db.Text
 createdBy Profile? @relation(fields: [createdById], references: [id], onDelete: SetNull)
 createdById String? @db.Uuid
 isActive Boolean @default(true)

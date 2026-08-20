@@ -12,6 +12,9 @@ export interface ShareLink {
   downloadCount: number;
   createdAt: string;
   updatedAt: string;
+  description: string | null;
+  fileId?: ID | null;
+  folderId?: ID | null;
 }
 
 export interface PublicShareFile {
@@ -20,6 +23,7 @@ export interface PublicShareFile {
   expiresAt: string | null;
   downloadLimit: number;
   downloadCount: number;
+  description: string | null;
   file: {
     id: ID;
     name: string;
@@ -33,6 +37,7 @@ export interface PublicShareFile {
 export interface PublicShareFolder {
   type: 'folder';
   permission: SharePermission;
+  description: string | null;
   expiresAt: string | null;
   folder: {
     id: ID;
@@ -58,16 +63,18 @@ function unwrap<T>(body: unknown): T {
 export async function createShareLink(
   fileId: string,
   permission: SharePermission = 'VIEW',
+  description?: string,
 ): Promise<ShareLink> {
-  const { data } = await api.post('/share-links', { fileId, permission });
+  const { data } = await api.post('/share-links', { fileId, permission, description });
   return unwrap(data);
 }
 
 export async function createFolderShareLink(
   folderId: string,
   permission: SharePermission = 'VIEW',
+  description?: string,
 ): Promise<ShareLink> {
-  const { data } = await api.post('/share-links', { folderId, permission });
+  const { data } = await api.post('/share-links', { folderId, permission, description });
   return unwrap(data);
 }
 
@@ -75,6 +82,16 @@ export async function fetchShare(
   token: string,
 ): Promise<PublicShareFile | PublicShareFolder> {
   const { data } = await api.get(`/share/${encodeURIComponent(token)}`);
+  return unwrap(data);
+}
+
+export async function fetchSharedText(token: string): Promise<string> {
+  const response = await api.get(`/share/${encodeURIComponent(token)}/preview`, { responseType: 'text' });
+  return response.data as string;
+}
+
+export async function saveSharedText(token: string, content: string): Promise<unknown> {
+  const { data } = await api.post(`/share/${encodeURIComponent(token)}/content`, { content });
   return unwrap(data);
 }
 

@@ -11,6 +11,7 @@ import {
 import type { Response } from 'express';
 
 import { AuditService } from '../audit/audit.service';
+import { DriveService } from '../drive/drive.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { IStorageService } from '../storage/storage.service.interface';
 import { STORAGE_SERVICE_TOKEN } from '../storage/storage.module';
@@ -22,6 +23,7 @@ export interface CreateShareLinkDto {
   permission?: SharePermission;
   expiresAt?: string;
   downloadLimit?: number;
+  description?: string;
 }
 
 @Injectable()
@@ -29,6 +31,7 @@ export class SharingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly drive: DriveService,
     @Inject(STORAGE_SERVICE_TOKEN) private readonly storage: IStorageService,
   ) {}
 
@@ -55,6 +58,34 @@ export class SharingService {
       }
     }
 
+    const existing = await this.prisma.shareLink.findFirst({
+      where: {
+        createdById: profileId,
+        isActive: true,
+        ...(dto.fileId ? { fileId: dto.fileId, folderId: null } : { folderId: dto.folderId, fileId: null }),
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (existing) {
+      const targetWhere = dto.fileId
+        ? { fileId: dto.fileId, folderId: null }
+        : { folderId: dto.folderId, fileId: null };
+      await this.prisma.shareLink.updateMany({
+        where: { createdById: profileId, isActive: true, ...targetWhere, id: { not: existing.id } },
+        data: { isActive: false },
+      });
+      return this.prisma.shareLink.update({
+        where: { id: existing.id },
+        data: {
+          permission: dto.permission ?? existing.permission,
+          description: dto.description?.trim() || null,
+          expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+          downloadLimit: dto.downloadLimit ?? existing.downloadLimit,
+          downloadCount: 0,
+        },
+      });
+    }
+
     const publicToken = crypto.randomBytes(24).toString('base64url');
 
     const link = await this.prisma.shareLink.create({
@@ -63,6 +94,7 @@ export class SharingService {
         fileId: dto.fileId ?? null,
         folderId: dto.folderId ?? null,
         permission: dto.permission ?? SharePermission.VIEW,
+        description: dto.description?.trim() || null,
         expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
         downloadLimit: dto.downloadLimit ?? 0,
         createdById: profileId,
@@ -121,6 +153,7 @@ export class SharingService {
       return {
         type: 'file',
         permission: link.permission,
+        description: link.description,
         expiresAt: link.expiresAt,
         downloadLimit: link.downloadLimit,
         downloadCount: link.downloadCount,
@@ -149,6 +182,7 @@ export class SharingService {
       return {
         type: 'folder',
         permission: link.permission,
+        description: link.description,
         expiresAt: link.expiresAt,
         folder: {
           id: folder.id,
@@ -160,6 +194,50 @@ export class SharingService {
     }
 
     throw new NotFoundException('Link has no target');
+  }
+
+  async updatePublicText(publicToken: string, content: string) {
+    const link = await this.resolveActiveLink(publicToken);
+    if (link.permission !== SharePermission.EDIT || !link.fileId) {
+      throw new ForbiddenException('This link does not allow editing');
+    }
+    const file = await this.prisma.file.findUnique({ where: { id: link.fileId } });
+    if (!file || file.deletedAt) throw new NotFoundException('File not found');
+    const editable = file.mimeType.startsWith('text/') || /json|xml|javascript|typescript|csv|markdown/.test(file.mimeType);
+    if (!editable) throw new BadRequestException('Only text-like files can be edited in the browser');
+
+    const buffer = Buffer.from(content, 'utf8');
+    const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+    if (file.sha256 === sha256) return { id: file.id, versionNumber: file.versionNumber, unchanged: true };
+    const versionNumber = file.versionNumber + 1;
+    const storagePath = `files/${file.id}/v${versionNumber}`;
+    await this.storage.upload(buffer, storagePath, file.mimeType);
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.fileVersion.create({
+        data: {
+          fileId: file.id,
+          versionNumber,
+          size: buffer.length,
+          mimeType: file.mimeType,
+          storagePath,
+          sha256,
+          syncStatus: 'PENDING',
+        },
+      });
+      return tx.file.update({
+        where: { id: file.id },
+        data: { size: buffer.length, versionNumber, sha256, syncStatus: 'PENDING', lastSyncedAt: null },
+      });
+    });
+
+    if (file.googleDriveFileId) {
+      try {
+        await this.drive.updateFileForProfile(file.ownerId, file.googleDriveFileId, { name: file.name, mimeType: file.mimeType, buffer });
+      } catch {
+        // The next authenticated Drive sync will retry the update.
+      }
+    }
+    return { id: updated.id, versionNumber: updated.versionNumber, saved: true };
   }
 
   async previewPublic(publicToken: string, res: Response, requestedFileId?: string) {

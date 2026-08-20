@@ -7,7 +7,7 @@ import { useParams } from 'next/navigation';
 import { Download, FileText, Folder, Link2, ShieldAlert } from 'lucide-react';
 
 import DashboardShell from '../../../components/dashboard-shell';
-import { fetchShare, shareDownloadUrl, sharePreviewUrl } from '../../../services/sharing';
+import { fetchShare, fetchSharedText, saveSharedText, shareDownloadUrl, sharePreviewUrl } from '../../../services/sharing';
 import type { PublicShareFile, PublicShareFolder } from '../../../services/sharing';
 
 function formatBytes(bytes: number): string {
@@ -70,6 +70,31 @@ export default function PublicSharePage() {
 }
 
 function FileView({ data, token }: { data: PublicShareFile; token: string }) {
+  const [fullView, setFullView] = useState(false);
+  const [text, setText] = useState('');
+  const [editLoading, setEditLoading] = useState(false);
+  const [editMessage, setEditMessage] = useState<string | null>(null);
+  const mime = data.file.mimeType ?? '';
+  const editable = data.permission === 'EDIT' && (mime.startsWith('text/') || /json|xml|javascript|typescript|csv|markdown/.test(mime));
+
+  useEffect(() => {
+    if (!editable) return;
+    fetchSharedText(token).then(setText).catch(() => setEditMessage('File ini belum dapat dibuka sebagai teks.'));
+  }, [editable, token]);
+
+  async function save() {
+    setEditLoading(true);
+    setEditMessage(null);
+    try {
+      await saveSharedText(token, text);
+      setEditMessage('Perubahan berhasil disimpan sebagai versi baru.');
+    } catch (e) {
+      setEditMessage(e instanceof Error ? e.message : 'Gagal menyimpan perubahan.');
+    } finally {
+      setEditLoading(false);
+    }
+  }
+
   return (
     <div>
       <div className="flex items-center gap-3 mb-4">
@@ -78,15 +103,16 @@ function FileView({ data, token }: { data: PublicShareFile; token: string }) {
         </div>
         <div className="min-w-0">
           <div className="truncate text-base font-semibold text-foreground">{data.file.name}</div>
-          <div className="text-xs text-foreground-muted">
+        <div className="text-xs text-foreground-muted">
             {data.file.mimeType ?? 'File'} · {formatBytes(data.file.size)}
           </div>
+          {data.description && <div className="mt-1 text-xs text-foreground-muted">{data.description}</div>}
         </div>
       </div>
 
       {data.file.mimeType?.startsWith('image/') ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={sharePreviewUrl(token)} alt={data.file.name} className="mb-4 max-h-80 w-full rounded border object-contain bg-black/5" />
+        <button type="button" onClick={() => setFullView(true)} className="mb-4 block w-full cursor-zoom-in"><img src={sharePreviewUrl(token)} alt={data.file.name} className="max-h-80 w-full rounded border object-contain bg-black/5" /></button>
       ) : data.file.mimeType?.startsWith('video/') ? (
         <video src={sharePreviewUrl(token)} controls className="mb-4 w-full rounded bg-black" />
       ) : data.file.mimeType?.startsWith('audio/') ? (
@@ -94,6 +120,10 @@ function FileView({ data, token }: { data: PublicShareFile; token: string }) {
       ) : data.file.mimeType === 'application/pdf' ? (
         <iframe src={sharePreviewUrl(token)} title={data.file.name} className="mb-4 h-80 w-full rounded border" />
       ) : null}
+
+      {editable && <div className="mb-4 rounded border border-border p-3"><div className="mb-2 text-sm font-semibold">Edit file</div><textarea value={text} onChange={(e) => setText(e.target.value)} className="min-h-48 w-full rounded border border-border bg-surface px-3 py-2 font-mono text-xs" /><button type="button" onClick={save} disabled={editLoading} className="mt-2 rounded bg-primary px-3 py-1.5 text-xs text-primary-foreground">{editLoading ? 'Menyimpan…' : 'Simpan perubahan'}</button>{editMessage && <div className="mt-2 text-xs text-foreground-muted">{editMessage}</div>}</div>}
+
+      {fullView && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 p-4" onClick={() => setFullView(false)}><button type="button" className="absolute right-4 top-4 rounded bg-white/10 px-3 py-2 text-sm text-white">Tutup</button><img src={sharePreviewUrl(token)} alt={data.file.name} className="max-h-[90vh] max-w-[95vw] object-contain" /></div>}
 
       <div className="rounded-md bg-surface-active p-3 text-xs text-foreground-muted space-y-1 mb-4">
         <div className="flex justify-between">
@@ -141,6 +171,7 @@ function FolderView({ data, token }: { data: PublicShareFolder; token: string })
         <div>
           <div className="text-base font-semibold text-foreground">{data.folder.name}</div>
           <div className="text-xs text-foreground-muted">{data.folder.files} berkas</div>
+          {data.description && <div className="mt-1 text-xs text-foreground-muted">{data.description}</div>}
         </div>
       </div>
       <div className="rounded-md bg-surface-active p-3 text-xs text-foreground-muted flex items-center gap-2 mb-4">

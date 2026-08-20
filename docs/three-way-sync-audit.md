@@ -59,3 +59,17 @@ Audit pada browser akun Google Drive yang terhubung menunjukkan folder root `Sch
 The browser error is `ERR_BLOCKED_BY_RESPONSE.NotSameOrigin` while loading `https://schooldms-production.up.railway.app/share/.../preview`. A production header check confirmed that the Railway response currently returns `cross-origin-resource-policy: same-origin`, even though it also returns HTTP 200, `content-type: image/jpeg`, and the correct `access-control-allow-origin: https://school-dms.vercel.app`. The browser therefore receives the image but blocks the Vercel page from embedding it.
 
 The backend Helmet configuration was changed to `crossOriginResourcePolicy: { policy: 'cross-origin' }`, and the CORS default now includes the production Vercel origin. Backend and web builds pass. This fix requires a Railway redeploy; the already-running production response will continue to show the old `same-origin` header until deployment completes. After redeploy, verify the preview response header is `cross-origin-resource-policy: cross-origin` and then hard-refresh the share page.
+
+## Per-target share link and EDIT behavior
+
+The identical-link behavior was caused by the frontend share dialog retaining its previous `url` state when the selected file or folder changed. The dialog now resets URL, permission, description, and error state whenever its target or open state changes. Backend creation now keeps one active link per exact file or folder target, deactivates older duplicates for that same target, and leaves different targets with different public tokens.
+
+Share links now persist an optional description and expose it on the public file/folder page. The public EDIT permission has a real save path for text-like files such as TXT, CSV, JSON, XML, Markdown, JavaScript, and TypeScript. Saving creates a new file version, updates the SHA-256 checksum, and attempts to mirror the new bytes to Google Drive. Images, video, audio, PDF, and other binary formats support preview, play, full view, and download according to permission; browser editing of arbitrary binary media is not represented as a fake text editor.
+
+## Final share-link and EDIT behavior
+
+The identical-link behavior was caused by the frontend share dialog retaining its previous URL state when the selected file or folder changed. The dialog now resets URL, permission, description, and error state whenever its target or open state changes. Backend creation now keeps one active link per exact file or folder target, deactivates older duplicates for that same target, and leaves different targets with different public tokens.
+
+Share links now persist an optional description and expose it on the public file/folder page. The public EDIT permission has a real save path for text-like files such as TXT, CSV, JSON, XML, Markdown, JavaScript, and TypeScript. Saving creates a new file version, updates the SHA-256 checksum, and attempts to mirror the new bytes to Google Drive. Images, video, audio, PDF, and other binary formats support preview, play, full view, and download according to permission; arbitrary binary-media editing is not represented as a fake text editor.
+
+Final validation completed with Prisma Client generation, backend build, 3 test suites and 6 tests passing, web build passing, and `git diff --check` passing. A production deploy is still required for these changes to become active on Railway and Vercel. Apply migration `20260820143000_add_share_description` before using descriptions in production.
