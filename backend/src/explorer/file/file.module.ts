@@ -5,11 +5,12 @@ import { AuditModule } from '../../audit/audit.module';
 import { DriveModule } from '../../drive/drive.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { StorageModule } from '../../storage/storage.module';
+import { SyncModule } from '../../sync/sync.module';
 import { FileController } from './file.controller';
 import { FileService } from './file.service';
 
 @Module({
-  imports: [PrismaModule, DriveModule, AuditModule, StorageModule, AuthModule],
+  imports: [PrismaModule, DriveModule, AuditModule, StorageModule, AuthModule, SyncModule],
   controllers: [FileController],
   providers: [FileService],
   exports: [FileService],

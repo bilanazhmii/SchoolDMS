@@ -16,6 +16,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { IStorageService } from '../storage/storage.service.interface';
 import { STORAGE_SERVICE_TOKEN } from '../storage/storage.module';
 import { DEFAULT_CORE_FOLDER_NAME } from '../explorer/core-folder.constants';
+import { SyncStatusService } from '../sync/sync-status.service';
+import { SyncOperation } from '@prisma/client';
 
 const ALGORITHM = 'aes-256-gcm';
 const DRIVE_FOLDER_MIME = 'application/vnd.google-apps.folder';
@@ -46,6 +48,7 @@ export class DriveService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     @Inject(STORAGE_SERVICE_TOKEN) private readonly storage: IStorageService,
+    private readonly sync: SyncStatusService,
   ) {
     this.clientId = this.config.get<string>('GOOGLE_DRIVE_CLIENT_ID') ?? '';
     this.clientSecret =
@@ -62,6 +65,14 @@ export class DriveService implements OnModuleInit {
       this.logger.warn(
         'Google Drive is not configured (GOOGLE_DRIVE_CLIENT_ID / GOOGLE_DRIVE_CLIENT_SECRET / GOOGLE_DRIVE_REDIRECT_URI / DRIVE_TOKEN_ENCRYPTION_KEY missing). Drive features are disabled.',
       );
+    }
+  }
+
+  private async emitRemoteChange(profileId: string, change: Parameters<SyncStatusService['emitRemoteChange']>[1]) {
+    try {
+      await this.sync.emitRemoteChange(profileId, change);
+    } catch (error) {
+      this.logger.warn('Drive remote change emission failed', error as Error);
     }
   }
 
@@ -673,6 +684,10 @@ export class DriveService implements OnModuleInit {
           : await this.prisma.folder.create({
               data: { name: entry.name, ownerId: profileId, parentFolderId, relativePath, googleDriveFolderId: entry.id, syncStatus: 'SYNCED', lastSyncedAt: new Date() },
             });
+        const changed = !existingFolder || existingFolder.name !== entry.name || existingFolder.parentFolderId !== parentFolderId || existingFolder.relativePath !== relativePath;
+        if (changed) {
+          await this.emitRemoteChange(profileId, { operation: !existingFolder ? SyncOperation.UPLOAD : existingFolder.name !== entry.name ? SyncOperation.RENAME : SyncOperation.MOVE, folderId: folder.id, oldRelativePath: existingFolder?.relativePath ?? null, relativePath: folder.relativePath, name: folder.name });
+        }
         backendFolderIds.set(entry.id, folder.id);
         folderCount++;
       } catch (error) {
@@ -705,13 +720,16 @@ export class DriveService implements OnModuleInit {
           const storagePath = `files/${file.id}/v1`;
           await this.storage.upload(buffer, storagePath, mimeType);
           await this.prisma.fileVersion.create({ data: { fileId: file.id, versionNumber: 1, size, mimeType, storagePath, sha256, syncStatus: 'SYNCED', lastSyncedAt: new Date() } });
+          await this.emitRemoteChange(profileId, { operation: SyncOperation.UPLOAD, fileId: file.id, folderId, relativePath, name: file.name, mimeType: file.mimeType, size: file.size, sha256: file.sha256 });
           created++;
           continue;
         }
 
         const driveModified = entry.modifiedTime ? new Date(entry.modifiedTime) : new Date(0);
         if (existing.sha256 === sha256 || driveModified <= existing.updatedAt) {
+          const locationChanged = existing.name !== entry.name || existing.folderId !== folderId || existing.relativePath !== relativePath;
           await this.prisma.file.update({ where: { id: existing.id }, data: { name: entry.name, folderId, relativePath, googleDriveFileId: entry.id } });
+          if (locationChanged) await this.emitRemoteChange(profileId, { operation: existing.name !== entry.name ? SyncOperation.RENAME : SyncOperation.MOVE, fileId: existing.id, folderId, oldRelativePath: existing.relativePath, relativePath, name: entry.name, mimeType });
           skipped++;
           continue;
         }
@@ -721,10 +739,33 @@ export class DriveService implements OnModuleInit {
         await this.storage.upload(buffer, storagePath, mimeType);
         await this.prisma.fileVersion.create({ data: { fileId: existing.id, versionNumber, size, mimeType, storagePath, sha256, syncStatus: 'SYNCED', lastSyncedAt: new Date() } });
         await this.prisma.file.update({ where: { id: existing.id }, data: { name: entry.name, folderId, relativePath, googleDriveFileId: entry.id, versionNumber, size, sha256, syncStatus: 'SYNCED', lastSyncedAt: new Date() } });
+        await this.emitRemoteChange(profileId, { operation: SyncOperation.UPLOAD, fileId: existing.id, folderId, relativePath, name: entry.name, mimeType, size, sha256 });
         updated++;
       } catch (error) {
         skipped++;
         this.logger.warn(`pullSync file skipped ${entry.name}: ${(error as Error).message}`);
+      }
+    }
+
+    const remoteIds = new Set(entries.map((entry) => entry.id));
+    const staleFiles = await this.prisma.file.findMany({
+      where: { ownerId: profileId, googleDriveFileId: { not: null }, deletedAt: null },
+      select: { id: true, name: true, relativePath: true, googleDriveFileId: true },
+    });
+    for (const file of staleFiles) {
+      if (file.googleDriveFileId && !remoteIds.has(file.googleDriveFileId)) {
+        await this.prisma.file.update({ where: { id: file.id }, data: { deletedAt: new Date() } });
+        await this.emitRemoteChange(profileId, { operation: SyncOperation.DELETE, fileId: file.id, relativePath: file.relativePath, name: file.name });
+      }
+    }
+    const staleFolders = await this.prisma.folder.findMany({
+      where: { ownerId: profileId, googleDriveFolderId: { not: null }, deletedAt: null },
+      select: { id: true, name: true, relativePath: true, googleDriveFolderId: true },
+    });
+    for (const folder of staleFolders) {
+      if (folder.googleDriveFolderId && !remoteIds.has(folder.googleDriveFolderId)) {
+        await this.prisma.folder.update({ where: { id: folder.id }, data: { deletedAt: new Date() } });
+        await this.emitRemoteChange(profileId, { operation: SyncOperation.DELETE, folderId: folder.id, relativePath: folder.relativePath, name: folder.name });
       }
     }
 

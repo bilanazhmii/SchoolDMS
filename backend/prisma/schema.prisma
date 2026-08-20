@@ -153,6 +153,7 @@ devices Device[]
 syncSessions SyncSession[]
 auditLogs AuditLog[]
 notifications Notification[]
+remoteChanges RemoteChange[]
 settings Settings?
 
 @@index([email])
@@ -395,7 +396,28 @@ createdAt DateTime @default(now())
 @@index([deletedAt])
 }
 
+model RemoteChange {
+id String @id @default(uuid()) @db.Uuid
+profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+profileId String @db.Uuid
+operation SyncOperation
+fileId String? @db.Uuid
+folderId String? @db.Uuid
+relativePath String? @db.Text
+oldRelativePath String? @db.Text
+name String? @db.VarChar(255)
+mimeType String? @db.VarChar(255)
+size BigInt?
+sha256 String? @db.VarChar(64)
+createdAt DateTime @default(now())
+
+@@index([profileId, createdAt])
+@@index([fileId])
+@@index([folderId])
+}
+
 model Device {
+
 id String @id @default(uuid()) @db.Uuid
 profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
 profileId String @db.Uuid

@@ -24,6 +24,8 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
     private readonly CancellationTokenSource _cts = new();
     private Task? _workerTask;
 
+    public bool IsApplyingRemoteChanges { get; private set; }
+
     /// <summary>
     /// Raised after a job is completed or failed (for live UI indicators).
     /// </summary>
@@ -65,7 +67,9 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
         {
             try
             {
-                await RegisterDeviceAsync(cancellationToken);
+                                await RegisterDeviceAsync(cancellationToken);
+                await PullRemoteChangesAsync(cancellationToken);
+
             }
             catch (Exception ex)
             {
@@ -208,9 +212,14 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
                 }
             }
         }
-        catch (Exception ex)
+                catch (Exception ex)
         {
             _logger.LogWarning("Device registration failed: {Message}", ex.Message);
+        }
+
+        if (!string.IsNullOrWhiteSpace(SessionId))
+        {
+            await PullRemoteChangesAsync(cancellationToken);
         }
     }
 
@@ -494,7 +503,166 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
         return Convert.ToHexString(hash);
     }
 
+        private async Task PullRemoteChangesAsync(CancellationToken cancellationToken)
+    {
+        var session = await _authStore.LoadAsync(cancellationToken);
+        if (session is null || string.IsNullOrWhiteSpace(session.AccessToken)) return;
+        var settings = await _settingsService.LoadAsync(cancellationToken);
+        var baseUrl = (string.IsNullOrWhiteSpace(settings.ServerUrl) ? DefaultServerUrl : settings.ServerUrl).TrimEnd('/');
+        var query = string.IsNullOrWhiteSpace(settings.RemoteSyncCursor)
+            ? "/sync/changes?limit=200"
+            : $"/sync/changes?limit=200&since={Uri.EscapeDataString(settings.RemoteSyncCursor)}";
+
+        try
+        {
+            using var client = CreateHttpClient(baseUrl, session.AccessToken);
+            using var response = await client.GetAsync(query, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Remote change pull failed ({StatusCode})", response.StatusCode);
+                return;
+            }
+
+            using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
+            var root = document.RootElement;
+            var data = root.TryGetProperty("data", out var wrapped) ? wrapped : root;
+            if (!data.TryGetProperty("cursor", out var cursorProperty)) return;
+            var cursor = cursorProperty.GetString();
+            if (string.IsNullOrWhiteSpace(cursor)) return;
+
+            IsApplyingRemoteChanges = true;
+            var applied = true;
+            if (data.TryGetProperty("changes", out var changes) && changes.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var change in changes.EnumerateArray())
+                {
+                    try
+                    {
+                        await ApplyRemoteChangeAsync(client, settings, change, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        applied = false;
+                        _logger.LogWarning(ex, "Remote change apply failed for {Path}", GetString(change, "relativePath"));
+                    }
+                }
+            }
+            await Task.Delay(TimeSpan.FromMilliseconds(750), cancellationToken);
+            IsApplyingRemoteChanges = false;
+
+            if (applied)
+            {
+                settings.RemoteSyncCursor = cursor;
+                await _settingsService.SaveAsync(settings, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            IsApplyingRemoteChanges = false;
+            throw;
+        }
+        catch (Exception ex)
+        {
+            IsApplyingRemoteChanges = false;
+            _logger.LogWarning("Remote change pull failed: {Message}", ex.Message);
+        }
+    }
+
+    private async Task ApplyRemoteChangeAsync(HttpClient client, AppSettings settings, JsonElement change, CancellationToken cancellationToken)
+    {
+        var operation = GetString(change, "operation")?.ToUpperInvariant();
+        var relativePath = GetString(change, "relativePath");
+        var oldRelativePath = GetString(change, "oldRelativePath");
+        var fileId = GetString(change, "fileId");
+        var folderId = GetString(change, "folderId");
+        var localPath = ResolveLocalPath(settings, relativePath);
+        var oldLocalPath = ResolveLocalPath(settings, oldRelativePath);
+
+        if (operation == "DELETE")
+        {
+            DeleteLocalPath(localPath);
+            return;
+        }
+
+        if (operation is "MOVE" or "RENAME")
+        {
+            if (oldLocalPath is not null && localPath is not null && !string.Equals(oldLocalPath, localPath, StringComparison.OrdinalIgnoreCase))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
+                if (Directory.Exists(oldLocalPath))
+                {
+                    if (!Directory.Exists(localPath)) Directory.Move(oldLocalPath, localPath);
+                }
+                else if (File.Exists(oldLocalPath)) File.Move(oldLocalPath, localPath, true);
+            }
+            else if (fileId is not null && localPath is not null)
+            {
+                await DownloadRemoteFileAsync(client, fileId, localPath, cancellationToken);
+            }
+            return;
+        }
+
+        if (operation == "UPLOAD" && fileId is null)
+        {
+            if (localPath is not null) Directory.CreateDirectory(localPath);
+            return;
+        }
+
+        if (operation == "UPLOAD" && fileId is not null && localPath is not null)
+        {
+            await DownloadRemoteFileAsync(client, fileId, localPath, cancellationToken);
+        }
+    }
+
+    private static async Task DownloadRemoteFileAsync(HttpClient client, string fileId, string localPath, CancellationToken cancellationToken)
+    {
+        using var response = await client.GetAsync($"/files/{Uri.EscapeDataString(fileId)}/download", cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            DeleteLocalPath(localPath);
+            return;
+        }
+        response.EnsureSuccessStatusCode();
+        Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
+        var tempPath = localPath + ".schooldms.tmp";
+        await using (var source = await response.Content.ReadAsStreamAsync(cancellationToken))
+        await using (var target = File.Create(tempPath))
+        {
+            await source.CopyToAsync(target, cancellationToken);
+        }
+        File.Move(tempPath, localPath, true);
+    }
+
+    private static string? ResolveLocalPath(AppSettings settings, string? relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath)) return null;
+        var normalized = relativePath.Replace('\\', '/').Trim('/');
+        var parts = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var roots = new[] { settings.SyncFolder }.Concat(settings.SyncFolders ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path));
+        foreach (var root in roots)
+        {
+            var rootFull = Path.GetFullPath(root);
+            var rootName = Path.GetFileName(rootFull.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            var start = parts.Length > 0 && string.Equals(parts[0], rootName, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+            var candidate = Path.GetFullPath(Path.Combine(new[] { rootFull }.Concat(parts.Skip(start).ToArray()).ToArray()));
+            if (candidate.Equals(rootFull, StringComparison.OrdinalIgnoreCase) || candidate.StartsWith(rootFull.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return candidate;
+        }
+        return null;
+    }
+
+    private static void DeleteLocalPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        if (File.Exists(path)) File.Delete(path);
+        else if (Directory.Exists(path)) Directory.Delete(path, true);
+    }
+
+    private static string? GetString(JsonElement element, string property)
+        => element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
     private static string DetectMimeType(string path)
+
     {
         var extension = Path.GetExtension(path).ToLowerInvariant();
         return extension switch

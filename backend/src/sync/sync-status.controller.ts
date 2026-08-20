@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import type { AuthenticatedProfile } from '../auth/auth.types';
@@ -28,6 +28,15 @@ export class SyncStatusController {
     @Body() dto: SyncJobReportDto,
   ) {
     return { success: true, data: this.sync.reportJob(user.id, dto) };
+  }
+
+  @Get('changes')
+  changes(
+    @CurrentUser() user: AuthenticatedProfile,
+    @Query('since') since?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return { success: true, data: this.sync.getRemoteChanges(user.id, since, limit ? Number(limit) : 200) };
   }
 
   @Get('status')

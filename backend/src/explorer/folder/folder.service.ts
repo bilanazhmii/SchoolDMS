@@ -10,6 +10,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateFolderDto } from '../dto/create-folder.dto';
 import { UpdateFolderDto } from '../dto/update-folder.dto';
 import { DEFAULT_CORE_FOLDER_NAME } from '../core-folder.constants';
+import { SyncStatusService } from '../../sync/sync-status.service';
+import { SyncOperation } from '@prisma/client';
 import type { IStorageService } from '../../storage/storage.service.interface';
 import { STORAGE_SERVICE_TOKEN } from '../../storage/storage.module';
 import { Inject } from '@nestjs/common';
@@ -21,7 +23,16 @@ export class FolderService {
     private audit: AuditService,
     private drive: DriveService,
     @Inject(STORAGE_SERVICE_TOKEN) private storage: IStorageService,
+    private sync: SyncStatusService,
   ) {}
+
+  private async emitRemoteChange(profileId: string, change: Parameters<SyncStatusService['emitRemoteChange']>[1]) {
+    try {
+      await this.sync.emitRemoteChange(profileId, change);
+    } catch (error) {
+      // Remote queue failure must not roll back a successful folder operation.
+    }
+  }
 
   private async ensureDefaultCoreFolder(profileId: string) {
     const existing = await this.prisma.folder.findFirst({
@@ -42,14 +53,17 @@ export class FolderService {
     try {
       const driveFolderId = await this.drive.createFolderForProfile(profileId, DEFAULT_CORE_FOLDER_NAME, null);
       if (driveFolderId) {
-        return await this.prisma.folder.update({
+        const mirrored = await this.prisma.folder.update({
           where: { id: folder.id },
           data: { googleDriveFolderId: driveFolderId, syncStatus: 'SYNCED', lastSyncedAt: new Date() },
         });
+        await this.emitRemoteChange(profileId, { operation: SyncOperation.UPLOAD, folderId: mirrored.id, relativePath: mirrored.relativePath, name: mirrored.name });
+        return mirrored;
       }
     } catch (error) {
       // Local organization remains valid; Drive reconciliation can retry later.
     }
+    await this.emitRemoteChange(profileId, { operation: SyncOperation.UPLOAD, folderId: folder.id, relativePath: folder.relativePath, name: folder.name });
     return folder;
   }
 
@@ -193,10 +207,12 @@ export class FolderService {
       const parentDriveId = parent?.googleDriveFolderId ?? null;
       const driveFolderId = await this.drive.createFolderForProfile(profileId, folder.name, parentDriveId);
       if (driveFolderId) {
-        return this.prisma.folder.update({
+        const mirrored = await this.prisma.folder.update({
           where: { id: folder.id },
           data: { googleDriveFolderId: driveFolderId, syncStatus: 'SYNCED', lastSyncedAt: new Date() },
         });
+        await this.emitRemoteChange(profileId, { operation: SyncOperation.UPLOAD, folderId: mirrored.id, relativePath: mirrored.relativePath, name: mirrored.name });
+        return mirrored;
       }
     } catch {
       // Drive mirroring is best-effort; the local folder remains usable.
@@ -205,6 +221,7 @@ export class FolderService {
     await this.audit.log(profileId, 'CREATE', 'FOLDER', folder.id, {
       name: folder.name,
     });
+    await this.emitRemoteChange(profileId, { operation: SyncOperation.UPLOAD, folderId: folder.id, relativePath: folder.relativePath, name: folder.name });
     return folder;
   }
 
@@ -240,6 +257,7 @@ export class FolderService {
       }
     } catch (error) { /* Drive retry will reconcile this folder on next sync. */ }
     await this.audit.log(profileId, 'UPDATE', 'FOLDER', id, { changes: data });
+    await this.emitRemoteChange(profileId, { operation: name !== folder.name ? SyncOperation.RENAME : SyncOperation.MOVE, folderId: id, oldRelativePath: oldPath, relativePath: updated.relativePath, name: updated.name });
     return updated;
   }
 
@@ -266,6 +284,7 @@ export class FolderService {
         await this.storage.upload(buffer, storagePath, file.mimeType);
         await this.prisma.fileVersion.create({ data: { fileId: copied.id, versionNumber: 1, size: file.size, mimeType: file.mimeType, storagePath, sha256: file.sha256 } });
       }
+      await this.emitRemoteChange(profileId, { operation: SyncOperation.UPLOAD, fileId: copied.id, folderId: copied.folderId, relativePath: copied.relativePath, name: copied.name, mimeType: copied.mimeType, size: copied.size, sha256: copied.sha256 });
     }
     await this.audit.log(profileId, 'CREATE', 'FOLDER', rootCopy.id, { action: 'copy', sourceFolderId: id });
     return rootCopy;
@@ -292,6 +311,7 @@ export class FolderService {
     await this.audit.log(profileId, 'DELETE', 'FOLDER', id, {
       name: folder.name,
     });
+    await this.emitRemoteChange(profileId, { operation: SyncOperation.DELETE, folderId: id, relativePath: folder.relativePath, name: folder.name });
     return deleted;
   }
 
@@ -312,6 +332,7 @@ export class FolderService {
     await this.audit.log(profileId, 'RESTORE', 'FOLDER', id, {
       name: folder.name,
     });
+    await this.emitRemoteChange(profileId, { operation: SyncOperation.UPLOAD, folderId: restored.id, relativePath: restored.relativePath, name: restored.name });
     return restored;
   }
 }

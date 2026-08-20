@@ -105,7 +105,7 @@ public sealed class FileMonitorService : IFileMonitorService
 
     private async Task HandleEventAsync(string path, SyncOperationType operation, string? payload = null)
     {
-        if (string.IsNullOrWhiteSpace(path) || IsIgnored(path))
+        if (string.IsNullOrWhiteSpace(path) || IsIgnored(path) || _syncEngine.IsApplyingRemoteChanges)
         {
             return;
         }

@@ -37,4 +37,9 @@ public interface ISyncEngine
     /// can show the client as online.
     /// </summary>
     Task RegisterDeviceAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Indicates that the engine is applying server-side changes to the local folder.
+    /// </summary>
+    bool IsApplyingRemoteChanges { get; }
 }

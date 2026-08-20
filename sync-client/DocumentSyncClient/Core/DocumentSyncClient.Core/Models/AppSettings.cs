@@ -56,4 +56,9 @@ public sealed class AppSettings
     /// Gets or sets a stable device identifier used for backend heartbeats.
     /// </summary>
     public string DeviceId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the server remote-change cursor last applied locally.
+    /// </summary>
+    public string RemoteSyncCursor { get; set; } = string.Empty;
 }

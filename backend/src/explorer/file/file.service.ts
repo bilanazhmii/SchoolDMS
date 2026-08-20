@@ -20,6 +20,8 @@ import {
   FileValidationConfig,
 } from '../../storage/dto/file-validation.dto';
 import { DEFAULT_CORE_FOLDER_NAME } from '../core-folder.constants';
+import { SyncStatusService } from '../../sync/sync-status.service';
+import { SyncOperation } from '@prisma/client';
 
 @Injectable()
 export class FileService {
@@ -32,6 +34,7 @@ export class FileService {
     private drive: DriveService,
     @Inject(STORAGE_SERVICE_TOKEN) private storage: IStorageService,
     private config: ConfigService,
+    private sync: SyncStatusService,
   ) {
     // Initialize file validator with configuration
     const validationConfig = new FileValidationConfig();
@@ -51,6 +54,14 @@ export class FileService {
 
   private serializeFile<T extends { size: bigint | number }>(file: T) {
     return { ...file, size: Number(file.size) };
+  }
+
+  private async emitRemoteChange(profileId: string, change: Parameters<SyncStatusService['emitRemoteChange']>[1]) {
+    try {
+      await this.sync.emitRemoteChange(profileId, change);
+    } catch (error) {
+      this.logger.warn('Remote change emission failed', error as Error);
+    }
   }
 
   private async ensureDefaultCoreFolder(profileId: string) {
@@ -195,6 +206,7 @@ export class FileService {
       } catch (error) {
         this.logger.warn(`Google Drive update failed for ${existing.id}`, error as Error);
       }
+      await this.emitRemoteChange(profileId, { operation: SyncOperation.UPLOAD, fileId: updated.id, folderId: updated.folderId, relativePath: updated.relativePath, name: updated.name, mimeType: updated.mimeType, size: updated.size, sha256: updated.sha256 });
       return this.serializeFile(updated);
     }
 
@@ -266,11 +278,13 @@ export class FileService {
           where: { id: created.id },
           data: { googleDriveFileId: driveFile.id, syncStatus: 'SYNCED', lastSyncedAt: new Date() },
         });
+        await this.emitRemoteChange(profileId, { operation: SyncOperation.UPLOAD, fileId: mirrored.id, folderId: mirrored.folderId, relativePath: mirrored.relativePath, name: mirrored.name, mimeType: mirrored.mimeType, size: mirrored.size, sha256: mirrored.sha256 });
         return this.serializeFile(mirrored);
       }
     } catch (error) {
       this.logger.warn(`Google Drive mirror failed for ${created.id}`, error as Error);
     }
+    await this.emitRemoteChange(profileId, { operation: SyncOperation.UPLOAD, fileId: created.id, folderId: created.folderId, relativePath: created.relativePath, name: created.name, mimeType: created.mimeType, size: created.size, sha256: created.sha256 });
     return this.serializeFile(created);
   }
 
@@ -286,12 +300,18 @@ export class FileService {
     const parts = normalized.split('/').filter(Boolean);
     if (parts.length <= 1) return undefined;
 
-    const folderNames = parts.slice(0, -1);
-    let parentId: string | undefined;
-    let walked = '';
+    let folderNames = parts.slice(0, -1);
+    const core = await this.prisma.folder.findFirst({
+      where: { ownerId: profileId, parentFolderId: null, name: DEFAULT_CORE_FOLDER_NAME, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+    });
+    const coreId = core?.id ?? await this.ensureDefaultCoreFolder(profileId);
+    if (folderNames[0] === DEFAULT_CORE_FOLDER_NAME) folderNames = folderNames.slice(1);
+    let parentId: string | undefined = coreId;
+    let walked = core?.relativePath ?? `/${DEFAULT_CORE_FOLDER_NAME}`;
 
     for (const name of folderNames) {
-      walked = walked ? `${walked}/${name}` : `/${name}`;
+      walked = `${walked}/${name}`;
       const existing = await this.prisma.folder.findFirst({
         where: {
           ownerId: profileId,
@@ -338,6 +358,7 @@ export class FileService {
     } catch (error) {
       this.logger.warn(`Google Drive trash failed for ${id}`, error as Error);
     }
+    await this.emitRemoteChange(profileId, { operation: SyncOperation.DELETE, fileId: file.id, relativePath: file.relativePath, name: file.name });
     // Delete callers only need an acknowledgement. Returning a small DTO avoids
     // sending a Prisma row through Express serialization on a destructive path.
     return { id: deleted.id, name: deleted.name, deletedAt: deleted.deletedAt };
@@ -380,6 +401,7 @@ export class FileService {
     }
 
     for (const file of files) {
+      await this.emitRemoteChange(profileId, { operation: SyncOperation.DELETE, fileId: file.id, relativePath: file.relativePath, name: file.name });
       try {
         await this.audit.log(profileId, 'DELETE', 'FILE', file.id, { name: file.name });
       } catch (error) {
@@ -421,6 +443,7 @@ export class FileService {
       data: { restoredAt: new Date() },
     });
     await this.audit.log(profileId, 'RESTORE', 'FILE', id, { name: file.name });
+    await this.emitRemoteChange(profileId, { operation: SyncOperation.UPLOAD, fileId: restored.id, folderId: restored.folderId, relativePath: restored.relativePath, name: restored.name, mimeType: restored.mimeType, size: restored.size, sha256: restored.sha256 });
     return this.serializeFile(restored);
   }
 
@@ -470,6 +493,7 @@ export class FileService {
     } catch (error) {
       this.logger.warn(`Google Drive rename/move failed for ${file.id}`, error as Error);
     }
+    await this.emitRemoteChange(profileId, { operation: name !== file.name ? SyncOperation.RENAME : SyncOperation.MOVE, fileId: file.id, folderId: moved.folderId, oldRelativePath: file.relativePath, relativePath: moved.relativePath, name: moved.name, mimeType: moved.mimeType, size: moved.size, sha256: moved.sha256 });
     return this.serializeFile(moved);
   }
 
@@ -484,6 +508,7 @@ export class FileService {
       try { await this.drive.renameFileForProfile(profileId, file.googleDriveFileId, cleanName); } catch (error) { this.logger.warn(`Google Drive rename failed for ${id}`, error as Error); }
     }
     await this.audit.log(profileId, 'UPDATE', 'FILE', id, { action: 'rename', name: cleanName });
+    await this.emitRemoteChange(profileId, { operation: SyncOperation.RENAME, fileId: id, folderId: renamed.folderId, oldRelativePath: file.relativePath, relativePath: renamed.relativePath, name: renamed.name, mimeType: renamed.mimeType, size: renamed.size, sha256: renamed.sha256 });
     return this.serializeFile(renamed);
   }
 
@@ -530,6 +555,7 @@ export class FileService {
     } catch (error) {
       this.logger.warn(`Google Drive move failed for ${id}`, error as Error);
     }
+    await this.emitRemoteChange(profileId, { operation: SyncOperation.MOVE, fileId: id, folderId: moved.folderId, oldRelativePath: file.relativePath, relativePath: moved.relativePath, name: moved.name, mimeType: moved.mimeType, size: moved.size, sha256: moved.sha256 });
     return this.serializeFile(moved);
   }
 
@@ -611,6 +637,7 @@ export class FileService {
       }
     }
     const result = await this.prisma.file.findUnique({ where: { id: copied.id } });
+    if (result) await this.emitRemoteChange(profileId, { operation: SyncOperation.UPLOAD, fileId: result.id, folderId: result.folderId, relativePath: result.relativePath, name: result.name, mimeType: result.mimeType, size: result.size, sha256: result.sha256 });
     return result ? this.serializeFile(result) : result;
   }
 

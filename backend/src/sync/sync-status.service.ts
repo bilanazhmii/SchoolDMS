@@ -19,6 +19,18 @@ export interface SyncJobReportDto {
   message?: string;
 }
 
+export interface RemoteChangeDto {
+  operation: SyncOperation;
+  fileId?: string | null;
+  folderId?: string | null;
+  relativePath?: string | null;
+  oldRelativePath?: string | null;
+  name?: string | null;
+  mimeType?: string | null;
+  size?: bigint | number | null;
+  sha256?: string | null;
+}
+
 @Injectable()
 export class SyncStatusService {
   private readonly logger = new Logger(SyncStatusService.name);
@@ -93,6 +105,38 @@ export class SyncStatusService {
     });
 
     return { success: true };
+  }
+
+  async emitRemoteChange(profileId: string, change: RemoteChangeDto) {
+    return this.prisma.remoteChange.create({
+      data: {
+        profileId,
+        operation: change.operation,
+        fileId: change.fileId ?? null,
+        folderId: change.folderId ?? null,
+        relativePath: change.relativePath ?? null,
+        oldRelativePath: change.oldRelativePath ?? null,
+        name: change.name ?? null,
+        mimeType: change.mimeType ?? null,
+        size: change.size == null ? null : BigInt(change.size),
+        sha256: change.sha256 ?? null,
+      },
+    });
+  }
+
+  async getRemoteChanges(profileId: string, since?: string, limit = 200) {
+    const parsedSince = since ? new Date(since) : new Date(0);
+    const safeSince = Number.isNaN(parsedSince.getTime()) ? new Date(0) : parsedSince;
+    const cursor = new Date();
+    const changes = await this.prisma.remoteChange.findMany({
+      where: { profileId, createdAt: { gt: safeSince, lte: cursor } },
+      orderBy: { createdAt: 'asc' },
+      take: Math.min(500, Math.max(1, limit)),
+    });
+    return {
+      cursor: cursor.toISOString(),
+      changes: changes.map((change) => ({ ...change, size: change.size == null ? null : Number(change.size) })),
+    };
   }
 
   async status(profileId: string) {
