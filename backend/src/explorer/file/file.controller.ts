@@ -11,6 +11,7 @@ import {
   UploadedFiles,
   UseGuards,
   UseInterceptors,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { FilesInterceptor } from '@nestjs/platform-express';
@@ -39,7 +40,7 @@ export class FileController {
   @ApiOperation({ summary: 'Get file metadata and versions' })
   async get(
     @CurrentUser() user: AuthenticatedProfile,
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
   ) {
     return { success: true, data: await this.service.get(user.id, id) };
   }
@@ -139,9 +140,10 @@ export class FileController {
   @ApiOperation({ summary: 'Soft delete multiple files atomically' })
   async removeMany(
     @CurrentUser() user: AuthenticatedProfile,
-    @Body() body: { ids?: string[] },
+    @Body() body: { ids?: unknown } = {},
   ) {
-    return { success: true, data: await this.service.softDeleteMany(user.id, Array.isArray(body.ids) ? body.ids : []) };
+    const ids = Array.isArray(body?.ids) ? body.ids.filter((id): id is string => typeof id === 'string') : [];
+    return { success: true, data: await this.service.softDeleteMany(user.id, ids) };
   }
 
   @Delete('by-path')
@@ -160,7 +162,7 @@ export class FileController {
   @ApiOperation({ summary: 'Soft delete file' })
   async remove(
     @CurrentUser() user: AuthenticatedProfile,
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
   ) {
     return { success: true, data: await this.service.softDelete(user.id, id) };
   }

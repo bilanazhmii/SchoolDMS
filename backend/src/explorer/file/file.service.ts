@@ -321,31 +321,44 @@ export class FileService {
     if (!files.length) return { requested: requestedIds.length, deleted: 0, missing };
 
     const deletedAt = new Date();
-    await this.prisma.$transaction(async (tx) => {
-      await tx.file.updateMany({
-        where: { id: { in: files.map((file) => file.id) }, ownerId: profileId, deletedAt: null },
-        data: { deletedAt },
-      });
-
-      const existingTrash = await tx.trash.findMany({
-        where: { profileId, fileId: { in: files.map((file) => file.id) }, restoredAt: null },
-        select: { fileId: true },
-      });
-      const existingIds = new Set(existingTrash.map((entry) => entry.fileId).filter(Boolean));
-      const newTrash = files
-        .filter((file) => !existingIds.has(file.id))
-        .map((file) => ({ profileId, fileId: file.id, deletedAt }));
-      if (newTrash.length) await tx.trash.createMany({ data: newTrash });
+    // Keep the critical file update as one simple batch operation. Do not put
+    // Trash or external Drive calls inside the transaction: a stale Trash row,
+    // a schema mismatch, or a Drive outage must not roll back file deletion.
+    await this.prisma.file.updateMany({
+      where: { id: { in: files.map((file) => file.id) }, ownerId: profileId, deletedAt: null },
+      data: { deletedAt },
     });
 
-    await Promise.allSettled(files.map((file) => this.audit.log(profileId, 'DELETE', 'FILE', file.id, { name: file.name })));
-    await Promise.allSettled(files.filter((file) => file.googleDriveFileId).map(async (file) => {
+    // Trash is best-effort and sequential to avoid another burst of database
+    // connections when Select All contains many files.
+    for (const file of files) {
       try {
-        await this.drive.trashFileForProfile(profileId, file.googleDriveFileId as string);
+        const activeTrash = await this.prisma.trash.findFirst({
+          where: { profileId, fileId: file.id, restoredAt: null },
+          select: { id: true },
+        });
+        if (!activeTrash) {
+          await this.prisma.trash.create({ data: { profileId, fileId: file.id, deletedAt } });
+        }
       } catch (error) {
-        this.logger.warn(`Google Drive bulk trash failed for ${file.id}`, error as Error);
+        this.logger.warn(`Bulk Trash record failed for ${file.id}`, error as Error);
       }
-    }));
+    }
+
+    for (const file of files) {
+      try {
+        await this.audit.log(profileId, 'DELETE', 'FILE', file.id, { name: file.name });
+      } catch (error) {
+        this.logger.warn(`Bulk delete audit failed for ${file.id}`, error as Error);
+      }
+      if (file.googleDriveFileId) {
+        try {
+          await this.drive.trashFileForProfile(profileId, file.googleDriveFileId);
+        } catch (error) {
+          this.logger.warn(`Google Drive bulk trash failed for ${file.id}`, error as Error);
+        }
+      }
+    }
 
     return { requested: requestedIds.length, deleted: files.length, missing };
   }
