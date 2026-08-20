@@ -80,6 +80,12 @@ export class FolderController {
     return { success: true, data: await this.service.update(user.id, id, dto) };
   }
 
+  @Post(':id/copy')
+  @ApiOperation({ summary: 'Copy folder recursively' })
+  async copy(@CurrentUser() user: AuthenticatedProfile, @Param('id') id: string) {
+    return { success: true, data: await this.service.copy(user.id, id) };
+  }
+
   @Delete(':id')
   @ApiOperation({ summary: 'Delete (soft) folder' })
   async remove(

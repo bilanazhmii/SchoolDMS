@@ -2,14 +2,14 @@
 
 import React, { Suspense, useEffect, useState } from 'react';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { useExplorer } from '../../hooks/useExplorer';
 import {
   ExplorerProvider,
   useExplorerContext,
 } from '../../providers/explorer-provider';
-import { fetchFolderContents } from '../../services/explorer';
+import { copyFolder, copyItem, deleteFolder, deleteItem, fetchFolderContents, renameFile, renameFolder } from '../../services/explorer';
 import { createShareLink, sharePageUrl } from '../../services/sharing';
 import type { FileItem, FolderItem } from '../../types/explorer';
 import Breadcrumb from '../breadcrumb';
@@ -25,9 +25,9 @@ import Toolbar from './Toolbar';
 import VersionHistoryPanel from './VersionHistoryPanel';
 
 const ExplorerInner: React.FC = () => {
-  const { currentFolderId, setCurrentFolderId, previewFile, setPreviewFile } =
-    useExplorerContext();
+  const { currentFolderId, setCurrentFolderId, previewFile, setPreviewFile, setSelection } = useExplorerContext();
   const { view } = useExplorer();
+  const qc = useQueryClient();
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['explorer', 'contents', currentFolderId],
@@ -42,7 +42,31 @@ const ExplorerInner: React.FC = () => {
 
   const openFolder = (folder: FolderItem) => {
     setPreviewFile(null);
+    setSelection([]);
     setCurrentFolderId(folder.id);
+  };
+
+  const handleAction = async (action: 'rename' | 'copy' | 'delete', item: FileItem | FolderItem) => {
+    const isFile = 'mimeType' in item;
+    try {
+      if (action === 'rename') {
+        const nextName = window.prompt('Rename item', item.name);
+        if (!nextName?.trim() || nextName.trim() === item.name) return;
+        if (isFile) await renameFile(item.id, nextName.trim());
+        else await renameFolder(item.id, nextName.trim());
+      } else if (action === 'copy') {
+        if (isFile) await copyItem(item.id, currentFolderId ?? undefined);
+        else await copyFolder(item.id);
+      } else if (window.confirm(`Delete ${item.name}?`)) {
+        if (isFile) await deleteItem(item.id);
+        else await deleteFolder(item.id);
+        setSelection([]);
+      }
+      await refetch();
+      qc.invalidateQueries({ queryKey: ['explorer', 'root-folders'] });
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Action failed');
+    }
   };
 
   const [shareUrl, setShareUrl] = useState<string | undefined>(undefined);
@@ -81,8 +105,8 @@ const ExplorerInner: React.FC = () => {
           <Breadcrumb
             items={[
               currentFolderId
-                ? { label: 'My Files', href: '/explorer' }
-                : { label: 'My Files' },
+                ? { label: 'My Sync', href: '/explorer' }
+                : { label: 'My Sync' },
             ]}
           />
         </div>
@@ -95,9 +119,9 @@ const ExplorerInner: React.FC = () => {
         ) : !hasItems ? (
           <EmptyState />
         ) : view === 'grid' ? (
-          <GridView files={files} folders={folders} onOpenFolder={openFolder} onShare={(item) => setShareTarget('mimeType' in item ? { fileId: item.id, name: item.name } : { folderId: item.id, name: item.name })} />
+          <GridView files={files} folders={folders} onOpenFolder={openFolder} onAction={handleAction} onShare={(item) => setShareTarget('mimeType' in item ? { fileId: item.id, name: item.name } : { folderId: item.id, name: item.name })} />
         ) : (
-          <ListView files={files} folders={folders} onOpenFolder={openFolder} onShare={(item) => setShareTarget('mimeType' in item ? { fileId: item.id, name: item.name } : { folderId: item.id, name: item.name })} />
+          <ListView files={files} folders={folders} onOpenFolder={openFolder} onAction={handleAction} onShare={(item) => setShareTarget('mimeType' in item ? { fileId: item.id, name: item.name } : { folderId: item.id, name: item.name })} />
         )}
       </main>
 

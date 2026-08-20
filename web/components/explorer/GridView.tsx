@@ -11,7 +11,6 @@ import {
   FileSpreadsheet,
   FileCode,
   Folder,
-  MoreHorizontal,
   Link2,
   Star,
 } from 'lucide-react';
@@ -21,13 +20,15 @@ import { cn } from '../../lib/utils';
 import { useExplorerContext } from '../../providers/explorer-provider';
 import type { FileItem, FolderItem } from '../../types/explorer';
 import { Button } from '../ui';
+import ContextMenu from './ContextMenu';
 
 const GridView: FC<{
   files: FileItem[];
   folders: FolderItem[];
   onOpenFolder?: (folder: FolderItem) => void;
   onShare?: (item: FileItem | FolderItem) => void;
-}> = ({ files, folders, onOpenFolder, onShare }) => {
+  onAction?: (action: 'rename' | 'copy' | 'delete', item: FileItem | FolderItem) => void;
+}> = ({ files, folders, onOpenFolder, onShare, onAction }) => {
   const { selection, setSelection, setPreviewFile } = useExplorerContext();
 
   function toggle(id: string) {
@@ -53,16 +54,18 @@ const GridView: FC<{
           <motion.div
             key={f.id}
             layout
-            onClick={() => {
-              toggle(f.id);
-              onOpenFolder?.(f);
-            }}
+            onClick={() => toggle(f.id)}
+            onDoubleClick={() => onOpenFolder?.(f)}
             role="button"
             tabIndex={0}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
+              if (e.key === 'Enter') {
                 e.preventDefault();
                 onOpenFolder?.(f);
+              }
+              if (e.key === ' ') {
+                e.preventDefault();
+                toggle(f.id);
               }
             }}
             className={cn(
@@ -72,12 +75,12 @@ const GridView: FC<{
                 : 'border-border bg-card hover:bg-surface-hover',
             )}
           >
-            <div className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100">
-              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" aria-label={`Share ${f.name}`} onClick={(e) => { e.stopPropagation(); onShare?.(f); }}>
-                <Link2 className="h-3.5 w-3.5" />
-              </Button>
+            <div className="absolute right-2 top-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" aria-label={`Share ${f.name}`} onClick={(e) => { e.stopPropagation(); onShare?.(f); }}><Link2 className="h-3.5 w-3.5" /></Button>
+              <ContextMenu label={f.name} onRename={() => onAction?.('rename', f)} onCopy={() => onAction?.('copy', f)} onDelete={() => onAction?.('delete', f)} />
             </div>
 
+            <input type="checkbox" checked={selected} onChange={() => toggle(f.id)} onClick={(e) => e.stopPropagation()} aria-label={`Select ${f.name}`} className="absolute left-2 top-2 h-4 w-4 accent-primary" />
             {/* Folder icon */}
             <div className="mb-3 flex h-14 items-center justify-center rounded-md bg-surface-active">
               <Folder className="h-7 w-7 text-primary" />
@@ -129,9 +132,7 @@ const GridView: FC<{
               <Button variant="ghost" size="sm" className="h-6 w-6 p-0" aria-label={`Share ${f.name}`} onClick={(e) => { e.stopPropagation(); onShare?.(f); }}>
                 <Link2 className="h-3.5 w-3.5" />
               </Button>
-              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" aria-label="More actions" onClick={(e) => { e.stopPropagation(); openFile(f); }}>
-                <MoreHorizontal className="h-3.5 w-3.5" />
-              </Button>
+              <ContextMenu label={f.name} onRename={() => onAction?.('rename', f)} onCopy={() => onAction?.('copy', f)} onDelete={() => onAction?.('delete', f)} />
             </div>
             {f.favorite && (
               <div className="absolute bottom-2 right-2">
@@ -139,6 +140,7 @@ const GridView: FC<{
               </div>
             )}
 
+            <input type="checkbox" checked={selected} onChange={() => toggle(f.id)} onClick={(e) => e.stopPropagation()} aria-label={`Select ${f.name}`} className="absolute left-2 top-2 h-4 w-4 accent-primary" />
             <FileThumbnail file={f} fallback={<Icon className="h-7 w-7 text-foreground-muted" />} />
 
             {/* Metadata */}

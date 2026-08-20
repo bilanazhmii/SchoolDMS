@@ -6,7 +6,7 @@ import React, {
   useState,
 } from 'react';
 
-import type { FileItem } from '../types/explorer';
+import type { ExplorerSort, ExplorerView, FileItem } from '../types/explorer';
 
 type ExplorerContextValue = {
   currentFolderId?: string | null;
@@ -15,6 +15,10 @@ type ExplorerContextValue = {
   setSelection: (ids: string[]) => void;
   previewFile?: FileItem | null;
   setPreviewFile: (f?: FileItem | null) => void;
+  view: ExplorerView;
+  setView: (view: ExplorerView) => void;
+  sort: ExplorerSort;
+  setSort: (sort: ExplorerSort) => void;
 };
 
 const ExplorerContext = createContext<ExplorerContextValue | null>(null);
@@ -31,13 +35,15 @@ export function ExplorerProvider({
   );
   const [selection, setSelectionState] = useState<string[]>([]);
   const [previewFile, setPreviewFileState] = useState<FileItem | null>(null);
+  const [view, setView] = useState<ExplorerView>('grid');
+  const [sort, setSort] = useState<ExplorerSort>('modified');
 
   const setCurrentFolderId = (id?: string | null) => setCurrentFolderIdState(id ?? null);
   const setSelection = (ids: string[]) => setSelectionState(ids);
   const setPreviewFile = (f?: FileItem | null) => setPreviewFileState(f ?? null);
 
   return (
-    <ExplorerContext.Provider value={{ currentFolderId, setCurrentFolderId, selection, setSelection, previewFile, setPreviewFile }}>
+    <ExplorerContext.Provider value={{ currentFolderId, setCurrentFolderId, selection, setSelection, previewFile, setPreviewFile, view, setView, sort, setSort }}>
       {children}
     </ExplorerContext.Provider>
   );

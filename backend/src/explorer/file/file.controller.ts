@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Patch,
   Param,
   Post,
   Query,
@@ -71,6 +72,16 @@ export class FileController {
     }
 
     return { success: true, data: uploaded };
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Rename file' })
+  async rename(
+    @CurrentUser() user: AuthenticatedProfile,
+    @Param('id') id: string,
+    @Body() body: { name?: string },
+  ) {
+    return { success: true, data: await this.service.rename(user.id, id, body.name ?? '') };
   }
 
   @Get(':id/download')

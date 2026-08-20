@@ -18,6 +18,7 @@ import { STORAGE_SERVICE_TOKEN } from '../storage/storage.module';
 
 const ALGORITHM = 'aes-256-gcm';
 const DRIVE_FOLDER_MIME = 'application/vnd.google-apps.folder';
+const DRIVE_ROOT_NAME = 'My Sync';
 
 type DriveTreeEntry = {
   id: string;
@@ -376,6 +377,15 @@ export class DriveService implements OnModuleInit {
     return result.data;
   }
 
+  async renameFileForProfile(profileId: string, googleDriveFileId: string, name: string) {
+    const token = await this.getAccessTokenForProfile(profileId);
+    if (!token) return null;
+    const oauth2 = this.createOAuthClient();
+    oauth2.setCredentials({ access_token: token });
+    const drive = google.drive({ version: 'v3', auth: oauth2 });
+    return drive.files.update({ fileId: googleDriveFileId, requestBody: { name }, fields: 'id, name, modifiedTime' });
+  }
+
   async moveFileForProfile(
     profileId: string,
     googleDriveFileId: string,
@@ -426,17 +436,24 @@ export class DriveService implements OnModuleInit {
 
   private async ensureRootFolder(profileId: string, accessToken: string) {
     const account = await this.prisma.driveAccount.findFirst({ where: { profileId } });
-    if (account?.rootFolderId) return account.rootFolderId;
     const oauth2 = this.createOAuthClient();
     oauth2.setCredentials({ access_token: accessToken });
     const drive = google.drive({ version: 'v3', auth: oauth2 });
+    if (account?.rootFolderId) {
+      try {
+        const stored = await drive.files.get({ fileId: account.rootFolderId, fields: 'id, name, mimeType, parents, trashed' });
+        if (stored.data.name === DRIVE_ROOT_NAME && stored.data.mimeType === DRIVE_FOLDER_MIME && stored.data.trashed !== true && stored.data.parents?.includes('root')) return account.rootFolderId;
+      } catch {
+        // Find or create the canonical root below when the stored root is stale.
+      }
+    }
     const existing = await drive.files.list({
-      q: "'root' in parents and name = 'SchoolDMS' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+      q: `'root' in parents and name = '${DRIVE_ROOT_NAME}' and mimeType = '${DRIVE_FOLDER_MIME}' and trashed = false`,
       fields: 'files(id)',
       pageSize: 1,
     });
     const folderId = existing.data.files?.[0]?.id ?? (await drive.files.create({
-      requestBody: { name: 'SchoolDMS', mimeType: 'application/vnd.google-apps.folder' },
+      requestBody: { name: DRIVE_ROOT_NAME, mimeType: DRIVE_FOLDER_MIME },
       fields: 'id',
     })).data.id;
     if (folderId && account) await this.prisma.driveAccount.update({ where: { id: account.id }, data: { rootFolderId: folderId } });
@@ -569,7 +586,7 @@ export class DriveService implements OnModuleInit {
 
   /**
    * Pull sync: Google Drive -> backend.
-   * Lists files in the user's SchoolDMS Drive folder, creates missing File records
+   * Lists files in the user's My Sync Drive folder, creates missing File records
    * (with content stored in backend storage) and, when the Drive file is newer,
    * adds a new version (last-write-wins conflict policy).
    */

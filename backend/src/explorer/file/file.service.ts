@@ -368,6 +368,20 @@ export class FileService {
     return moved;
   }
 
+  async rename(profileId: string, id: string, name: string) {
+    const cleanName = name.trim();
+    if (!cleanName) throw new BadRequestException('File name is required');
+    const file = await this.prisma.file.findUnique({ where: { id } });
+    if (!file || file.ownerId !== profileId || file.deletedAt) throw new NotFoundException('File not found');
+    const relativePath = file.folderId ? `${(await this.prisma.folder.findUnique({ where: { id: file.folderId } }))?.relativePath ?? ''}/${cleanName}` : `/${cleanName}`;
+    const renamed = await this.prisma.file.update({ where: { id }, data: { name: cleanName, relativePath } });
+    if (file.googleDriveFileId) {
+      try { await this.drive.renameFileForProfile(profileId, file.googleDriveFileId, cleanName); } catch (error) { this.logger.warn(`Google Drive rename failed for ${id}`, error as Error); }
+    }
+    await this.audit.log(profileId, 'UPDATE', 'FILE', id, { action: 'rename', name: cleanName });
+    return renamed;
+  }
+
   async move(
     profileId: string,
     id: string,

@@ -83,3 +83,13 @@ The Drive root lookup now targets a top-level My Drive folder named `SchoolDMS`.
 Drive pull is now recursive. It traverses folders below `SchoolDMS`, creates or updates backend Folder records with matching parent relationships and relative paths, then creates or versions File records inside those backend folders. This prevents Drive folders from being flattened into My Files and prevents Drive folders from being mistaken for files.
 
 The updated backend compiles, the existing 3 test suites with 6 tests pass, and the web build passes. Production still requires the latest Railway deployment and a manual `Sync Drive` action after deployment. The sync response now reports folder creation/reconciliation counts in addition to file upload and pull counts.
+
+## My Sync root and explorer action/UI fixes
+
+The canonical Google Drive root is now a top-level folder named `My Sync`. Existing stored root IDs are validated before reuse; stale legacy roots are no longer treated as canonical. Folder push and pull operate beneath this root, while existing mapped folders are moved under the correct parent during reconciliation.
+
+Explorer view state is now shared through `ExplorerProvider`, so the grid/list toggle, selection, and toolbar operate on the same state. File and folder cards/rows have visible checkboxes, single-click selection, double-click open/navigation, keyboard support, and a selected-count toolbar control.
+
+The three-dot menu now has a real trigger and target-aware actions. Rename calls file or folder rename endpoints, copy duplicates files or recursively copies folders, and delete soft-deletes the target. File/folder rename and delete update backend relative paths and attempt the corresponding Google Drive metadata operation. Manual sync displays folder/file reconciliation counts.
+
+Validation: Prisma generation, backend build, 3 test suites with 6 tests, and web build all pass. Deploy the latest backend to Railway and frontend to Vercel, then run `Sync Drive` once to migrate the account to `My Sync` and reconcile existing items.

@@ -60,7 +60,7 @@ const FolderTree: FC = () => {
         )}
       >
         <Home className="h-4 w-4 shrink-0" />
-        <span>My Files</span>
+        <span>My Sync</span>
       </button>
       <div className="space-y-0.5">
         {rootLoading ? (

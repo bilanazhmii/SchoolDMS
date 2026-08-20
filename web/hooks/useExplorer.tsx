@@ -1,25 +1,17 @@
 "use client";
 
-import {
-  useCallback,
-  useState,
-} from 'react';
+import { useCallback } from 'react';
 
-import type {
-  ExplorerSort,
-  ExplorerView,
-} from '../types/explorer';
+import { useExplorerContext } from '../providers/explorer-provider';
 
 export function useExplorer() {
-  const [view, setView] = useState<ExplorerView>('grid');
-  const [sort, setSort] = useState<ExplorerSort>('modified');
-  const [selected, setSelected] = useState<string[]>([]);
+  const { view, setView, sort, setSort, selection, setSelection } = useExplorerContext();
 
   const toggleSelect = useCallback((id: string) => {
-    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
-  }, []);
+    setSelection(selection.includes(id) ? selection.filter((x) => x !== id) : [...selection, id]);
+  }, [selection, setSelection]);
 
-  const clearSelection = useCallback(() => setSelected([]), []);
+  const clearSelection = useCallback(() => setSelection([]), [setSelection]);
 
-  return { view, setView, sort, setSort, selected, toggleSelect, clearSelection };
+  return { view, setView, sort, setSort, selected: selection, toggleSelect, clearSelection };
 }

@@ -121,6 +121,26 @@ export async function createFolder(name: string, parentFolderId?: string) {
   return unwrap(data);
 }
 
+export async function renameFile(itemId: string, name: string) {
+  const { data } = await api.patch(`/files/${itemId}`, { name });
+  return unwrap(data);
+}
+
+export async function renameFolder(folderId: string, name: string) {
+  const { data } = await api.patch(`/folders/${folderId}`, { name });
+  return unwrap(data);
+}
+
+export async function deleteFolder(folderId: string) {
+  const { data } = await api.delete(`/folders/${folderId}`);
+  return unwrap(data);
+}
+
+export async function copyFolder(folderId: string) {
+  const { data } = await api.post(`/folders/${folderId}/copy`);
+  return unwrap(data);
+}
+
 export async function moveItem(itemId: string, toFolderId?: string) {
   const { data } = await api.post(`/files/${itemId}/move`, {
     toFolderId: toFolderId ?? null,
