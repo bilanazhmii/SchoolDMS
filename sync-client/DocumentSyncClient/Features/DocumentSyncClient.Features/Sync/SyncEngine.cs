@@ -68,7 +68,6 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
             try
             {
                                 await RegisterDeviceAsync(cancellationToken);
-                await PullRemoteChangesAsync(cancellationToken);
 
             }
             catch (Exception ex)
@@ -78,7 +77,7 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
 
             try
             {
-                await Task.Delay(TimeSpan.FromSeconds(60), cancellationToken);
+                await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
             }
             catch (OperationCanceledException)
             {
