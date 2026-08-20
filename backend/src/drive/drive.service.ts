@@ -86,9 +86,8 @@ export class DriveService implements OnModuleInit {
   }
 
   /**
-   * Automatic Drive -> backend pull every 10 minutes for every connected user,
-   * so files changed on Google Drive appear in the web explorer without a
-   * manual "Sync Drive" click.
+   * Drive -> backend change detection. The changes feed is probed every five
+   * seconds; a full tree reconciliation runs only when Drive reports a change.
    */
   onModuleInit() {
     if (!this.isConfigured()) {
@@ -97,11 +96,10 @@ export class DriveService implements OnModuleInit {
       );
       return;
     }
-    this.timer = setInterval(() => void this.autoPullAll(), 10 * 60 * 1000);
+    const intervalMs = Math.max(5000, Number(this.config.get<string>('DRIVE_SYNC_INTERVAL_MS') ?? 5000));
+    this.timer = setInterval(() => void this.autoPullAll(), intervalMs);
     this.timer.unref?.();
-    this.logger.log(
-      'Drive auto-pull scheduler enabled (every 10 minutes).',
-    );
+    this.logger.log(`Drive changes scheduler enabled (every ${intervalMs}ms).`);
   }
 
   private async autoPullAll() {
@@ -114,19 +112,58 @@ export class DriveService implements OnModuleInit {
       });
       for (const account of accounts) {
         try {
-          const pushed = await this.pushSync(account.profileId);
-          const pulled = await this.pullSync(account.profileId);
-          this.logger.log(
-            `Auto-sync for ${account.profileId}: push=${JSON.stringify(pushed)} pull=${JSON.stringify(pulled)}`,
-          );
+          await this.pollDriveChanges(account.profileId);
         } catch (e) {
           this.logger.warn(
-            `Auto-pull failed for ${account.profileId}: ${(e as Error).message}`,
+            `Drive change poll failed for ${account.profileId}: ${(e as Error).message}`,
           );
         }
       }
     } finally {
       this.pulling = false;
+    }
+  }
+
+  private async pollDriveChanges(profileId: string) {
+    const account = await this.prisma.driveAccount.findFirst({
+      where: { profileId, connectionStatus: 'CONNECTED' },
+    });
+    const token = await this.getAccessTokenForProfile(profileId);
+    if (!account || !token) return;
+
+    const oauth2 = this.createOAuthClient();
+    oauth2.setCredentials({ access_token: token });
+    const drive = google.drive({ version: 'v3', auth: oauth2 });
+    let pageToken = account.driveStartPageToken;
+    if (!pageToken) {
+      const start = await drive.changes.getStartPageToken({});
+      pageToken = start.data.startPageToken ?? null;
+      if (!pageToken) return;
+      await this.prisma.driveAccount.update({ where: { id: account.id }, data: { driveStartPageToken: pageToken } });
+      return;
+    }
+
+    let hasChanges = false;
+    let newStartPageToken: string | null = null;
+    while (pageToken) {
+      const response = await drive.changes.list({
+        pageToken,
+        spaces: 'drive',
+        includeRemoved: true,
+        restrictToMyDrive: true,
+        pageSize: 1000,
+        fields: 'nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,parents,modifiedTime,trashed,size,md5Checksum))',
+      });
+      if ((response.data.changes ?? []).length > 0) hasChanges = true;
+      pageToken = response.data.nextPageToken ?? null;
+      if (!pageToken) newStartPageToken = response.data.newStartPageToken ?? null;
+    }
+
+    if (hasChanges) {
+      await this.pullSync(profileId);
+    }
+    if (newStartPageToken) {
+      await this.prisma.driveAccount.update({ where: { id: account.id }, data: { driveStartPageToken: newStartPageToken } });
     }
   }
 
