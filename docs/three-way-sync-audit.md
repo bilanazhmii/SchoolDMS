@@ -101,3 +101,11 @@ The selection workflow now has an always-visible `Select all` control, a selecte
 The My Sync push path now reconciles all local/backend files rather than filtering only rows with a null Drive ID. A stored Drive ID is checked; stale, deleted, or invalid IDs are re-uploaded. Folder IDs receive the same validation and recreation behavior. This addresses the case where the backend believes items are synced while the actual My Sync Drive folder is empty.
 
 Final validation passed: Prisma generation, backend build, 3 test suites with 6 tests, web build, and `git diff --check`. The connected browser could not verify Drive contents because the Drive navigation request timed out with HTTP 504, so production verification must be done after redeploy by pressing Sync Drive and confirming the returned folder/upload counts.
+
+## HTTP 500 operation hardening
+
+The attachment showed two related runtime symptoms: repeated `GET /files/:id` responses with HTTP 500 and a `DELETE /files/:id` response with HTTP 500. File metadata responses now explicitly convert BigInt sizes to numbers, avoiding JSON serialization failures in the metadata/version response. The global exception filter now logs the actual server-side stack trace for every unexpected 5xx response.
+
+Delete is idempotent and avoids duplicate active Trash rows when web actions, Drive reconciliation, or the desktop sync client retry the same operation. Folder deletion cascades its deleted state to descendants and files. Copy now mirrors the copied file to Google Drive immediately; stale Drive IDs are revalidated and re-uploaded when necessary. Rename and move continue to update backend relative paths and attempt Drive metadata changes.
+
+Final source validation passed: Prisma generation, backend build, 3 test suites with 6 tests, web build, and `git diff --check`. A Railway redeploy is required before the production 500 behavior changes. If a 500 remains after redeploy, the new exception filter will put the exact Prisma/Drive stack trace in Railway logs instead of hiding the cause.

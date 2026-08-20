@@ -51,7 +51,11 @@ export class FileService {
       where: { fileId: id },
       orderBy: { versionNumber: 'desc' },
     });
-    return { ...file, versions };
+    return {
+      ...file,
+      size: Number(file.size),
+      versions: versions.map((version) => ({ ...version, size: version.size == null ? null : Number(version.size) })),
+    };
   }
 
   async upload(
@@ -273,15 +277,14 @@ export class FileService {
     const file = await this.prisma.file.findUnique({ where: { id } });
     if (!file || file.ownerId !== profileId)
       throw new NotFoundException('File not found');
-    if (file.deletedAt) throw new BadRequestException('File already deleted');
+    if (file.deletedAt) return file;
 
     const deleted = await this.prisma.file.update({
       where: { id },
       data: { deletedAt: new Date() },
     });
-    await this.prisma.trash.create({
-      data: { profileId, fileId: id, deletedAt: new Date() },
-    });
+    const activeTrash = await this.prisma.trash.findFirst({ where: { profileId, fileId: id, restoredAt: null } });
+    if (!activeTrash) await this.prisma.trash.create({ data: { profileId, fileId: id, deletedAt: new Date() } });
     await this.audit.log(profileId, 'DELETE', 'FILE', id, { name: file.name });
     try {
       if (file.googleDriveFileId) {
@@ -453,7 +456,7 @@ export class FileService {
       orderBy: { versionNumber: 'desc' },
     });
 
-    return this.prisma.$transaction(async (tx) => {
+    const copied = await this.prisma.$transaction(async (tx) => {
       const newFile = await tx.file.create({
         data: {
           name: file.name,
@@ -494,6 +497,18 @@ export class FileService {
       });
       return newFile;
     });
+
+    if (latestVersion?.storagePath) {
+      try {
+        const buffer = await this.storage.download(latestVersion.storagePath);
+        const destination = toFolderId ? await this.prisma.folder.findUnique({ where: { id: toFolderId } }) : null;
+        const driveFile = await this.drive.uploadFileForProfile(profileId, { name: file.name, mimeType: file.mimeType, buffer }, destination?.googleDriveFolderId ?? null, copied.relativePath);
+        if (driveFile?.id) await this.prisma.file.update({ where: { id: copied.id }, data: { googleDriveFileId: driveFile.id, syncStatus: 'SYNCED', lastSyncedAt: new Date() } });
+      } catch (error) {
+        this.logger.warn(`Google Drive copy mirror failed for ${copied.id}`, error as Error);
+      }
+    }
+    return this.prisma.file.findUnique({ where: { id: copied.id } });
   }
 
   async preview(profileId: string, id: string) {

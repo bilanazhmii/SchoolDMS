@@ -177,8 +177,7 @@ export class FolderService {
     const folder = await this.prisma.folder.findUnique({ where: { id } });
     if (!folder || folder.ownerId !== profileId)
       throw new NotFoundException('Folder not found');
-    if (folder.deletedAt)
-      throw new BadRequestException('Folder already deleted');
+    if (folder.deletedAt) return folder;
 
     const deletedAt = new Date();
     const descendants = await this.prisma.folder.findMany({ where: { ownerId: profileId, relativePath: { startsWith: `${folder.relativePath}/` }, deletedAt: null } });
@@ -190,9 +189,8 @@ export class FolderService {
     if (folder.googleDriveFolderId) {
       try { await this.drive.trashFileForProfile(profileId, folder.googleDriveFolderId); } catch (error) { /* retry through Drive reconciliation */ }
     }
-    await this.prisma.trash.create({
-      data: { profileId, folderId: id, deletedAt: new Date() },
-    });
+    const activeTrash = await this.prisma.trash.findFirst({ where: { profileId, folderId: id, restoredAt: null } });
+    if (!activeTrash) await this.prisma.trash.create({ data: { profileId, folderId: id, deletedAt: new Date() } });
     await this.audit.log(profileId, 'DELETE', 'FOLDER', id, {
       name: folder.name,
     });
