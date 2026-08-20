@@ -12,6 +12,7 @@ import {
   FileCode,
   Folder,
   MoreHorizontal,
+  Link2,
   Star,
 } from 'lucide-react';
 
@@ -25,7 +26,8 @@ const GridView: FC<{
   files: FileItem[];
   folders: FolderItem[];
   onOpenFolder?: (folder: FolderItem) => void;
-}> = ({ files, folders, onOpenFolder }) => {
+  onShare?: (item: FileItem | FolderItem) => void;
+}> = ({ files, folders, onOpenFolder, onShare }) => {
   const { selection, setSelection, setPreviewFile } = useExplorerContext();
 
   function toggle(id: string) {
@@ -70,6 +72,12 @@ const GridView: FC<{
                 : 'border-border bg-card hover:bg-surface-hover',
             )}
           >
+            <div className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100">
+              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" aria-label={`Share ${f.name}`} onClick={(e) => { e.stopPropagation(); onShare?.(f); }}>
+                <Link2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+
             {/* Folder icon */}
             <div className="mb-3 flex h-14 items-center justify-center rounded-md bg-surface-active">
               <Folder className="h-7 w-7 text-primary" />
@@ -118,16 +126,10 @@ const GridView: FC<{
           >
             {/* Hover/selected actions */}
             <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0"
-                aria-label="More actions"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openFile(f);
-                }}
-              >
+              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" aria-label={`Share ${f.name}`} onClick={(e) => { e.stopPropagation(); onShare?.(f); }}>
+                <Link2 className="h-3.5 w-3.5" />
+              </Button>
+              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" aria-label="More actions" onClick={(e) => { e.stopPropagation(); openFile(f); }}>
                 <MoreHorizontal className="h-3.5 w-3.5" />
               </Button>
             </div>

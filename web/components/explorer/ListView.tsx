@@ -9,6 +9,7 @@ import {
   FileText,
   Folder,
   MoreHorizontal,
+  Link2,
   Star,
 } from 'lucide-react';
 
@@ -21,7 +22,8 @@ const ListView: FC<{
   files: FileItem[];
   folders: FolderItem[];
   onOpenFolder?: (folder: FolderItem) => void;
-}> = ({ files, folders, onOpenFolder }) => {
+  onShare?: (item: FileItem | FolderItem) => void;
+}> = ({ files, folders, onOpenFolder, onShare }) => {
   const { selection, setSelection, setPreviewFile } = useExplorerContext();
 
   function toggle(id: string) {
@@ -112,7 +114,11 @@ const ListView: FC<{
                     Folder
                   </span>
                 </td>
-                <td className="px-3 py-2.5 w-8" />
+                <td className="px-3 py-2.5 w-8">
+                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0" aria-label={`Share ${f.name}`} onClick={(e) => { e.stopPropagation(); onShare?.(f); }}>
+                    <Link2 className="h-3.5 w-3.5" />
+                  </Button>
+                </td>
               </tr>
             );
           })}
@@ -179,9 +185,11 @@ const ListView: FC<{
                     aria-label="More actions"
                     onClick={(e) => {
                       e.stopPropagation();
-                      openFile(f);
+                      onShare?.(f);
                     }}
                   >
+                    <Link2 className="mr-1 h-3.5 w-3.5" />
+                    <span className="sr-only">Share</span>
                     <MoreHorizontal className="h-3.5 w-3.5" />
                   </Button>
                 </td>

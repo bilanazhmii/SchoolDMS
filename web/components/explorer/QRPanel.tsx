@@ -3,21 +3,26 @@
 import { FC, useMemo } from 'react';
 
 const QRPanel: FC<{ fileUrl?: string | null }> = ({ fileUrl }) => {
+  const validUrl = Boolean(fileUrl && /^https?:\/\/[^\s/]+\/s\/[^\s/]+$/.test(fileUrl));
   const qrSrc = useMemo(() => {
-    if (!fileUrl) return null;
-    return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(fileUrl)}`;
-  }, [fileUrl]);
+    if (!validUrl || !fileUrl) return null;
+    return `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(fileUrl)}`;
+  }, [fileUrl, validUrl]);
 
-  if (!fileUrl) return <div className="p-4 text-sm text-foreground-muted">Select a file to generate a QR code.</div>;
+  if (!fileUrl || !validUrl) {
+    return <div className="p-4 text-sm text-foreground-muted">Buat share link VIEW untuk menghasilkan QR guest yang valid.</div>;
+  }
 
   return (
     <div className="p-4">
-      <div className="text-sm font-semibold mb-2">QR Code</div>
+      <div className="mb-2 text-sm font-semibold">QR Code</div>
       {qrSrc && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={qrSrc} alt="QR code for shared file" className="w-48 h-48 bg-white p-2 rounded border border-border" />
+        <img src={qrSrc} alt="QR code for shared file" className="h-48 w-48 rounded border border-border bg-white p-2" />
       )}
-      <p className="mt-2 break-all text-2xs text-foreground-faint">{fileUrl}</p>
+      <a href={fileUrl} target="_blank" rel="noreferrer" className="mt-2 block break-all text-2xs text-primary hover:underline">
+        {fileUrl}
+      </a>
     </div>
   );
 };

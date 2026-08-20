@@ -33,8 +33,8 @@ export class SharingService {
   ) {}
 
   async create(profileId: string, dto: CreateShareLinkDto) {
-    if (!dto.fileId && !dto.folderId) {
-      throw new BadRequestException('fileId or folderId is required');
+    if ((!dto.fileId && !dto.folderId) || (dto.fileId && dto.folderId)) {
+      throw new BadRequestException('Exactly one of fileId or folderId is required');
     }
 
     if (dto.fileId) {
@@ -55,7 +55,7 @@ export class SharingService {
       }
     }
 
-    const publicToken = crypto.randomBytes(16).toString('base64url');
+    const publicToken = crypto.randomBytes(24).toString('base64url');
 
     const link = await this.prisma.shareLink.create({
       data: {
@@ -162,14 +162,31 @@ export class SharingService {
     throw new NotFoundException('Link has no target');
   }
 
+  async previewPublic(publicToken: string, res: Response, requestedFileId?: string) {
+    const link = await this.resolveActiveLink(publicToken);
+    const fileId = link.fileId ?? requestedFileId;
+    const file = fileId ? await this.prisma.file.findUnique({ where: { id: fileId } }) : null;
+    if (!file || file.deletedAt) throw new NotFoundException('File not found');
+    if (link.folderId && (!requestedFileId || file.folderId !== link.folderId)) {
+      throw new NotFoundException('Shared file is not inside this folder');
+    }
+    const latestVersion = await this.prisma.fileVersion.findFirst({
+      where: { fileId: file.id },
+      orderBy: { versionNumber: 'desc' },
+    });
+    if (!latestVersion?.storagePath) throw new NotFoundException('File version not found');
+    const buffer = await this.storage.download(latestVersion.storagePath);
+    res.setHeader('Content-Type', file.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.name)}"`);
+    res.setHeader('Content-Length', buffer.length.toString());
+    res.send(buffer);
+  }
+
   async downloadPublic(publicToken: string, res: Response, requestedFileId?: string) {
     const link = await this.resolveActiveLink(publicToken);
 
-    if (link.permission !== SharePermission.DOWNLOAD && link.permission !== SharePermission.EDIT && link.permission !== SharePermission.VIEW) {
-      // VIEW-only links may still allow download when downloadLimit is configured; otherwise block.
-      if (link.downloadLimit === 0) {
-        throw new ForbiddenException('This link does not allow downloads');
-      }
+    if (link.permission !== SharePermission.DOWNLOAD && link.permission !== SharePermission.EDIT) {
+      throw new ForbiddenException('This link does not allow downloads');
     }
 
     if (link.downloadLimit !== null && link.downloadLimit > 0 && link.downloadCount >= link.downloadLimit) {

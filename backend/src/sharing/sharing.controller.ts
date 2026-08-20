@@ -25,31 +25,45 @@ export class SharingController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Post('share-links')
-  create(
+  async create(
     @CurrentUser() user: AuthenticatedProfile,
     @Body() dto: CreateShareLinkDto,
   ) {
-    return { success: true, data: this.sharing.create(user.id, dto) };
+    return { success: true, data: await this.sharing.create(user.id, dto) };
   }
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Get('share-links')
-  list(@CurrentUser() user: AuthenticatedProfile) {
-    return { success: true, data: this.sharing.listForProfile(user.id) };
+  async list(@CurrentUser() user: AuthenticatedProfile) {
+    return { success: true, data: await this.sharing.listForProfile(user.id) };
   }
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Delete('share-links/:id')
-  remove(@CurrentUser() user: AuthenticatedProfile, @Param('id') id: string) {
-    return { success: true, data: this.sharing.remove(user.id, id) };
+  async remove(@CurrentUser() user: AuthenticatedProfile, @Param('id') id: string) {
+    return { success: true, data: await this.sharing.remove(user.id, id) };
   }
 
   // Public endpoints — intentionally WITHOUT JwtAuthGuard.
   @Get('share/:token')
-  getPublic(@Param('token') token: string) {
-    return { success: true, data: this.sharing.getPublic(token) };
+  async getPublic(@Param('token') token: string) {
+    return { success: true, data: await this.sharing.getPublic(token) };
+  }
+
+  @Get('share/:token/preview')
+  previewPublic(@Param('token') token: string, @Res() res: Response) {
+    return this.sharing.previewPublic(token, res);
+  }
+
+  @Get('share/:token/preview/:fileId')
+  previewPublicFolderFile(
+    @Param('token') token: string,
+    @Param('fileId') fileId: string,
+    @Res() res: Response,
+  ) {
+    return this.sharing.previewPublic(token, res, fileId);
   }
 
   @Get('share/:token/download')

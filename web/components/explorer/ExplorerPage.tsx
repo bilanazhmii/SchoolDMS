@@ -11,7 +11,7 @@ import {
 } from '../../providers/explorer-provider';
 import { fetchFolderContents } from '../../services/explorer';
 import { createShareLink, sharePageUrl } from '../../services/sharing';
-import type { FolderItem } from '../../types/explorer';
+import type { FileItem, FolderItem } from '../../types/explorer';
 import Breadcrumb from '../breadcrumb';
 import { Skeleton } from '../ui';
 import FilePreviewPanel from './FilePreviewPanel';
@@ -20,6 +20,7 @@ import GridView from './GridView';
 import ListView from './ListView';
 import MetadataPanel from './MetadataPanel';
 import QRPanel from './QRPanel';
+import ShareDialog from './ShareDialog';
 import Toolbar from './Toolbar';
 import VersionHistoryPanel from './VersionHistoryPanel';
 
@@ -45,6 +46,7 @@ const ExplorerInner: React.FC = () => {
   };
 
   const [shareUrl, setShareUrl] = useState<string | undefined>(undefined);
+  const [shareTarget, setShareTarget] = useState<{ fileId?: string; folderId?: string; name: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,9 +95,9 @@ const ExplorerInner: React.FC = () => {
         ) : !hasItems ? (
           <EmptyState />
         ) : view === 'grid' ? (
-          <GridView files={files} folders={folders} onOpenFolder={openFolder} />
+          <GridView files={files} folders={folders} onOpenFolder={openFolder} onShare={(item) => setShareTarget('mimeType' in item ? { fileId: item.id, name: item.name } : { folderId: item.id, name: item.name })} />
         ) : (
-          <ListView files={files} folders={folders} onOpenFolder={openFolder} />
+          <ListView files={files} folders={folders} onOpenFolder={openFolder} onShare={(item) => setShareTarget('mimeType' in item ? { fileId: item.id, name: item.name } : { folderId: item.id, name: item.name })} />
         )}
       </main>
 
@@ -116,6 +118,13 @@ const ExplorerInner: React.FC = () => {
           </div>
         </div>
       </aside>
+      <ShareDialog
+        fileId={shareTarget?.fileId}
+        folderId={shareTarget?.folderId}
+        targetName={shareTarget?.name}
+        open={Boolean(shareTarget)}
+        onClose={() => setShareTarget(null)}
+      />
     </div>
   );
 };

@@ -84,6 +84,12 @@ export function shareDownloadUrl(token: string, fileId?: string): string {
   return `${base}/share/${encodeURIComponent(token)}${suffix}`;
 }
 
+export function sharePreviewUrl(token: string, fileId?: string): string {
+  const base = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/$/, '');
+  const suffix = fileId ? `/preview/${encodeURIComponent(fileId)}` : '/preview';
+  return `${base}/share/${encodeURIComponent(token)}${suffix}`;
+}
+
 export function sharePageUrl(token: string): string {
   return `/s/${encodeURIComponent(token)}`;
 }

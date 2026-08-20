@@ -33,3 +33,13 @@ Untuk konsistensi desktop sync, event delete tidak lagi dibuang ketika file loka
 ## Batas deployment
 
 Perubahan source sudah lulus build backend, 3 test suites dengan 6 test, dan build web Next.js. Endpoint production yang sudah aktif merespons health check dengan database connected, tetapi source code baru belum dapat dipastikan aktif di production sampai deployment Railway dan Vercel menjalankan build terbaru. Build desktop Windows belum dapat diverifikasi di sandbox karena .NET SDK tidak tersedia.
+
+## Perbaikan share link dan QR code
+
+Penyebab utama URL `/s/undefined` adalah controller sharing mengembalikan Promise di dalam properti `data` tanpa menunggu hasilnya. Akibatnya frontend menerima payload tanpa `publicToken`. Semua response controller sharing sekarang menunggu service dan mengembalikan token sebenarnya.
+
+Share dialog sekarang menerima target file atau folder, memiliki tombol Share langsung pada grid dan list, dan menyediakan permission `VIEW`, `COMMENT`, `DOWNLOAD`, serta `EDIT`. Backend menolak request yang tidak memiliki target atau mengirim file dan folder sekaligus. Token dibuat dengan random bytes yang lebih panjang dan dijaga oleh unique constraint database.
+
+Guest endpoint dibagi menjadi metadata, preview inline, dan download. `VIEW` serta `COMMENT` dapat membuka preview tanpa login; `DOWNLOAD` dan `EDIT` dapat mengunduh; COMMENT tidak dapat mengunduh. Folder share menampilkan file di dalam folder dan memvalidasi bahwa file yang diminta memang berada di folder tersebut. QR panel sekarang menolak URL invalid atau undefined dan hanya menampilkan QR untuk URL guest dengan pola `/s/{token}`.
+
+Setelah deployment, uji API dengan membuat satu link untuk file A, satu link untuk file B, dan satu link untuk folder. Pastikan token ketiganya berbeda, buka link VIEW di browser incognito, coba preview image/video/audio/PDF, lalu pastikan link COMMENT tidak mengunduh, link DOWNLOAD dapat mengunduh, dan folder link hanya menampilkan isi folder target.
