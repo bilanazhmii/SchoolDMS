@@ -19,6 +19,7 @@ import {
   FileValidator,
   FileValidationConfig,
 } from '../../storage/dto/file-validation.dto';
+import { DEFAULT_CORE_FOLDER_NAME } from '../core-folder.constants';
 
 @Injectable()
 export class FileService {
@@ -50,6 +51,36 @@ export class FileService {
 
   private serializeFile<T extends { size: bigint | number }>(file: T) {
     return { ...file, size: Number(file.size) };
+  }
+
+  private async ensureDefaultCoreFolder(profileId: string) {
+    const existing = await this.prisma.folder.findFirst({
+      where: { ownerId: profileId, parentFolderId: null, name: DEFAULT_CORE_FOLDER_NAME, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (existing) return existing.id;
+
+    const folder = await this.prisma.folder.create({
+      data: {
+        name: DEFAULT_CORE_FOLDER_NAME,
+        ownerId: profileId,
+        parentFolderId: null,
+        relativePath: `/${DEFAULT_CORE_FOLDER_NAME}`,
+        visibility: 'PRIVATE',
+      },
+    });
+    try {
+      const driveFolderId = await this.drive.createFolderForProfile(profileId, DEFAULT_CORE_FOLDER_NAME, null);
+      if (driveFolderId) {
+        await this.prisma.folder.update({
+          where: { id: folder.id },
+          data: { googleDriveFolderId: driveFolderId, syncStatus: 'SYNCED', lastSyncedAt: new Date() },
+        });
+      }
+    } catch (error) {
+      this.logger.warn(`Default core folder Drive mirror failed for ${profileId}`, error as Error);
+    }
+    return folder.id;
   }
 
   async get(profileId: string, id: string) {
@@ -98,6 +129,9 @@ export class FileService {
     // relative path sent by the desktop client (e.g. "Docs/Reports/a.pdf").
     if (!folderId && relativePathHint) {
       folderId = await this.ensureFolderPath(profileId, relativePathHint);
+    }
+    if (!folderId) {
+      folderId = await this.ensureDefaultCoreFolder(profileId);
     }
 
     let relativePath = `/${sanitizedFilename}`;

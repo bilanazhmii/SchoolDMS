@@ -15,6 +15,7 @@ import type { AuthenticatedProfile } from '../auth/auth.types';
 import { PrismaService } from '../prisma/prisma.service';
 import type { IStorageService } from '../storage/storage.service.interface';
 import { STORAGE_SERVICE_TOKEN } from '../storage/storage.module';
+import { DEFAULT_CORE_FOLDER_NAME } from '../explorer/core-folder.constants';
 
 const ALGORITHM = 'aes-256-gcm';
 const DRIVE_FOLDER_MIME = 'application/vnd.google-apps.folder';
@@ -628,10 +629,39 @@ export class DriveService implements OnModuleInit {
     let updated = 0;
     let skipped = 0;
 
+    let coreFolder = await this.prisma.folder.findFirst({
+      where: { ownerId: profileId, parentFolderId: null, name: DEFAULT_CORE_FOLDER_NAME, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!coreFolder) {
+      const driveCoreId = await this.createFolderForProfile(profileId, DEFAULT_CORE_FOLDER_NAME, rootFolderId);
+      coreFolder = await this.prisma.folder.create({
+        data: {
+          name: DEFAULT_CORE_FOLDER_NAME,
+          ownerId: profileId,
+          parentFolderId: null,
+          relativePath: `/${DEFAULT_CORE_FOLDER_NAME}`,
+          googleDriveFolderId: driveCoreId,
+          syncStatus: driveCoreId ? 'SYNCED' : 'PENDING',
+          ...(driveCoreId ? { lastSyncedAt: new Date() } : {}),
+        },
+      });
+    }
+
     for (const entry of entries.filter((item) => item.isFolder)) {
       try {
-        const parentFolderId = entry.parentId === rootFolderId ? null : backendFolderIds.get(entry.parentId) ?? null;
-        const relativePath = `/${entry.relativePath}`;
+        if (entry.parentId === rootFolderId && entry.name === DEFAULT_CORE_FOLDER_NAME) {
+          const syncedCore = await this.prisma.folder.update({
+            where: { id: coreFolder.id },
+            data: { googleDriveFolderId: entry.id, syncStatus: 'SYNCED', lastSyncedAt: new Date() },
+          });
+          backendFolderIds.set(entry.id, syncedCore.id);
+          folderCount++;
+          continue;
+        }
+        const parentFolderId = entry.parentId === rootFolderId ? coreFolder.id : backendFolderIds.get(entry.parentId) ?? coreFolder.id;
+        const insideCore = entry.relativePath === DEFAULT_CORE_FOLDER_NAME || entry.relativePath.startsWith(`${DEFAULT_CORE_FOLDER_NAME}/`);
+        const relativePath = insideCore ? `/${entry.relativePath}` : `${coreFolder.relativePath}/${entry.relativePath}`;
         const existingFolder = await this.prisma.folder.findFirst({
           where: { ownerId: profileId, OR: [{ googleDriveFolderId: entry.id }, { relativePath }] },
         });
@@ -653,8 +683,9 @@ export class DriveService implements OnModuleInit {
 
     for (const entry of entries.filter((item) => !item.isFolder)) {
       try {
-        const folderId = entry.parentId === rootFolderId ? null : backendFolderIds.get(entry.parentId) ?? null;
-        const relativePath = `/${entry.relativePath}`;
+        const folderId = entry.parentId === rootFolderId ? coreFolder.id : backendFolderIds.get(entry.parentId) ?? coreFolder.id;
+        const insideCore = entry.relativePath === DEFAULT_CORE_FOLDER_NAME || entry.relativePath.startsWith(`${DEFAULT_CORE_FOLDER_NAME}/`);
+        const relativePath = insideCore ? `/${entry.relativePath}` : `${coreFolder.relativePath}/${entry.relativePath}`;
         const existing = await this.prisma.file.findFirst({
           where: { ownerId: profileId, OR: [{ googleDriveFileId: entry.id }, { relativePath }] },
         });

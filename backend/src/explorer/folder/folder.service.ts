@@ -9,6 +9,7 @@ import { DriveService } from '../../drive/drive.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateFolderDto } from '../dto/create-folder.dto';
 import { UpdateFolderDto } from '../dto/update-folder.dto';
+import { DEFAULT_CORE_FOLDER_NAME } from '../core-folder.constants';
 import type { IStorageService } from '../../storage/storage.service.interface';
 import { STORAGE_SERVICE_TOKEN } from '../../storage/storage.module';
 import { Inject } from '@nestjs/common';
@@ -22,11 +23,98 @@ export class FolderService {
     @Inject(STORAGE_SERVICE_TOKEN) private storage: IStorageService,
   ) {}
 
+  private async ensureDefaultCoreFolder(profileId: string) {
+    const existing = await this.prisma.folder.findFirst({
+      where: { ownerId: profileId, parentFolderId: null, name: DEFAULT_CORE_FOLDER_NAME, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (existing) return existing;
+
+    const folder = await this.prisma.folder.create({
+      data: {
+        name: DEFAULT_CORE_FOLDER_NAME,
+        ownerId: profileId,
+        parentFolderId: null,
+        relativePath: `/${DEFAULT_CORE_FOLDER_NAME}`,
+        visibility: 'PRIVATE',
+      },
+    });
+    try {
+      const driveFolderId = await this.drive.createFolderForProfile(profileId, DEFAULT_CORE_FOLDER_NAME, null);
+      if (driveFolderId) {
+        return await this.prisma.folder.update({
+          where: { id: folder.id },
+          data: { googleDriveFolderId: driveFolderId, syncStatus: 'SYNCED', lastSyncedAt: new Date() },
+        });
+      }
+    } catch (error) {
+      // Local organization remains valid; Drive reconciliation can retry later.
+    }
+    return folder;
+  }
+
   async rootFolders(profileId: string) {
+    await this.organizeRootFiles(profileId);
     return this.prisma.folder.findMany({
       where: { ownerId: profileId, parentFolderId: null, deletedAt: null },
       orderBy: { name: 'asc' },
     });
+  }
+
+  async organizeRootFiles(profileId: string) {
+    const core = await this.ensureDefaultCoreFolder(profileId);
+    const rootFolders = await this.prisma.folder.findMany({
+      where: { ownerId: profileId, parentFolderId: null, deletedAt: null, id: { not: core.id } },
+      orderBy: { createdAt: 'asc' },
+    });
+    let foldersMoved = 0;
+    for (const folder of rootFolders) {
+      await this.update(profileId, folder.id, { parentFolderId: core.id } as UpdateFolderDto);
+      foldersMoved++;
+    }
+
+    const rootFiles = await this.prisma.file.findMany({
+      where: { ownerId: profileId, folderId: null, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+    });
+    let moved = 0;
+    for (const file of rootFiles) {
+      let name = file.name;
+      let relativePath = `${core.relativePath}/${name}`;
+      const conflict = await this.prisma.file.findFirst({
+        where: { ownerId: profileId, folderId: core.id, relativePath, deletedAt: null, id: { not: file.id } },
+        select: { id: true },
+      });
+      if (conflict) {
+        const dot = name.lastIndexOf('.');
+        const stem = dot > 0 ? name.slice(0, dot) : name;
+        const extension = dot > 0 ? name.slice(dot) : '';
+        name = `${stem} (moved-${file.id.slice(0, 8)})${extension}`;
+        relativePath = `${core.relativePath}/${name}`;
+      }
+
+      let driveSynced = false;
+      if (file.googleDriveFileId && core.googleDriveFolderId) {
+        try {
+          await this.drive.moveFileForProfile(profileId, file.googleDriveFileId, core.googleDriveFolderId);
+          driveSynced = true;
+        } catch (error) {
+          // Keep the file locally organized and let the next Drive sync retry.
+        }
+      }
+      await this.prisma.file.update({
+        where: { id: file.id },
+        data: {
+          name,
+          folderId: core.id,
+          relativePath,
+          syncStatus: driveSynced ? 'SYNCED' : 'PENDING',
+          ...(driveSynced ? { lastSyncedAt: new Date() } : {}),
+        },
+      });
+      moved++;
+    }
+    return { folderName: core.name, folderId: core.id, foldersMoved, moved };
   }
 
   async getContents(
@@ -36,6 +124,7 @@ export class FolderService {
     pageSize = 50,
     filter?: string,
   ) {
+    if (!folderId) await this.organizeRootFiles(profileId);
     const take = Math.min(200, pageSize);
     const skip = (page - 1) * take;
 
@@ -75,19 +164,23 @@ export class FolderService {
   }
 
   async create(profileId: string, dto: CreateFolderDto) {
-    const parent = dto.parentFolderId
+    let parentFolderId = dto.parentFolderId ?? null;
+    if (!parentFolderId && dto.name.trim() !== DEFAULT_CORE_FOLDER_NAME) {
+      parentFolderId = (await this.ensureDefaultCoreFolder(profileId)).id;
+    }
+    const parent = parentFolderId
       ? await this.prisma.folder.findUnique({
-          where: { id: dto.parentFolderId },
+          where: { id: parentFolderId },
         })
       : null;
-    if (dto.parentFolderId && !parent)
+    if (parentFolderId && !parent)
       throw new NotFoundException('Parent folder not found');
 
     const folder = await this.prisma.folder.create({
       data: {
         name: dto.name,
         ownerId: profileId,
-        parentFolderId: dto.parentFolderId ?? null,
+        parentFolderId,
         relativePath: parent
           ? `${parent.relativePath}/${dto.name}`
           : `/${dto.name}`,
@@ -141,7 +234,9 @@ export class FolderService {
     try {
       if (folder.googleDriveFolderId) {
         await this.drive.renameFileForProfile(profileId, folder.googleDriveFolderId, name);
-        await this.drive.moveFileForProfile(profileId, folder.googleDriveFolderId, parent?.googleDriveFolderId ?? null);
+        if (!parentFolderId || parent?.googleDriveFolderId) {
+          await this.drive.moveFileForProfile(profileId, folder.googleDriveFolderId, parent?.googleDriveFolderId ?? null);
+        }
       }
     } catch (error) { /* Drive retry will reconcile this folder on next sync. */ }
     await this.audit.log(profileId, 'UPDATE', 'FOLDER', id, { changes: data });

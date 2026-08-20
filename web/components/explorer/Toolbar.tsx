@@ -109,7 +109,7 @@ const Toolbar: FC<{ folderId?: string; items: ExplorerItem[] }> = ({ folderId, i
       files.forEach((file) => form.append('files', file));
       await uploadFiles(folderId, form);
       refresh();
-      setStatus({ type: 'success', text: `${files.length} file(s) uploaded.` });
+      setStatus({ type: 'success', text: `${files.length} file(s) uploaded${folderId ? '.' : ' to My Files.'}` });
     } catch (error) {
       setStatus({ type: 'error', text: error instanceof Error ? error.message : 'Upload failed.' });
     } finally {
@@ -134,7 +134,7 @@ const Toolbar: FC<{ folderId?: string; items: ExplorerItem[] }> = ({ folderId, i
       setBusy(true);
       await createFolder(name.trim(), folderId);
       refresh();
-      setStatus({ type: 'success', text: `Folder “${name.trim()}” created.` });
+      setStatus({ type: 'success', text: `Folder “${name.trim()}” created${folderId ? '.' : ' inside My Files.'}` });
     } catch (error) {
       setStatus({ type: 'error', text: error instanceof Error ? error.message : 'Folder creation failed.' });
     } finally {
@@ -150,9 +150,9 @@ const Toolbar: FC<{ folderId?: string; items: ExplorerItem[] }> = ({ folderId, i
         {selected.length > 0 && <div className="flex items-center gap-1 rounded-md border border-border bg-surface-active p-1"><button type="button" disabled={busy} onClick={() => handleBulk('copy')} className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-foreground-muted hover:bg-surface-hover disabled:opacity-50" title="Copy selected"><Copy className="h-3.5 w-3.5" />Copy</button><button type="button" disabled={busy} onClick={() => handleBulk('move')} className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-foreground-muted hover:bg-surface-hover disabled:opacity-50" title="Move selected"><Move className="h-3.5 w-3.5" />Move</button><button type="button" disabled={busy} onClick={() => handleBulk('delete')} className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-danger hover:bg-danger/10 disabled:opacity-50" title="Delete selected"><Trash2 className="h-3.5 w-3.5" />Delete</button></div>}
         <div className="relative min-w-[180px] flex-1"><Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-foreground-faint" /><input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSearch(); } }} placeholder="Search files and folders..." className="h-9 w-full rounded-md border border-border bg-surface pl-9 pr-3 text-sm text-foreground placeholder:text-foreground-faint focus:outline-none focus:ring-1 focus:ring-primary" /></div>
         <div className="flex items-center gap-1 rounded-md border border-border bg-surface-active p-1"><button type="button" onClick={() => setView('grid')} className={cn('rounded-sm p-1.5', view === 'grid' ? 'bg-primary text-primary-foreground' : 'text-foreground-muted hover:bg-surface-hover')} aria-label="Grid view"><LayoutGrid className="h-4 w-4" /></button><button type="button" onClick={() => setView('list')} className={cn('rounded-sm p-1.5', view === 'list' ? 'bg-primary text-primary-foreground' : 'text-foreground-muted hover:bg-surface-hover')} aria-label="List view"><List className="h-4 w-4" /></button></div>
-        <button type="button" onClick={handleNewFolder} disabled={busy} className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-foreground-muted hover:bg-surface-hover disabled:opacity-50" title="Create folder"><FolderPlus className="h-4 w-4" /><span className="hidden sm:inline">New folder</span></button>
+        <button type="button" onClick={handleNewFolder} disabled={busy} className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-foreground-muted hover:bg-surface-hover disabled:opacity-50" title={folderId ? 'Create folder here' : 'Create folder inside My Files'}><FolderPlus className="h-4 w-4" /><span className="hidden sm:inline">New folder</span></button>
         <button type="button" onClick={handleSyncDrive} disabled={syncing || busy} className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-foreground-muted hover:bg-surface-hover disabled:opacity-60" title="Synchronize My Sync with Google Drive"><RefreshCw className={cn('h-4 w-4', syncing && 'animate-spin')} /><span className="hidden sm:inline">{syncing ? 'Syncing…' : 'Sync Drive'}</span></button>
-        <label className={cn('inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-foreground-muted hover:bg-surface-hover', busy && 'pointer-events-none opacity-50')} title="Upload files"><Upload className="h-4 w-4" /><span className="hidden sm:inline">Upload</span><input type="file" multiple className="hidden" onChange={handleUpload} /></label>
+        <label className={cn('inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-foreground-muted hover:bg-surface-hover', busy && 'pointer-events-none opacity-50')} title={folderId ? 'Upload files here' : 'Upload files to My Files'}><Upload className="h-4 w-4" /><span className="hidden sm:inline">Upload</span><input type="file" multiple className="hidden" onChange={handleUpload} /></label>
         <div onDragOver={(e) => e.preventDefault()} onDrop={handleDrop} className="hidden items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-sm text-foreground-muted hover:border-primary hover:text-foreground sm:flex" title="Drag and drop files to upload"><Upload className="h-4 w-4" /><span className="hidden lg:inline">Drop to upload</span></div>
         {busy && <Loader2 className="h-4 w-4 animate-spin text-primary" aria-label="Operation in progress" />}
       </div>
