@@ -19,13 +19,17 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  app.use(helmet());
+  app.use(helmet({
+    // Public share previews are rendered by the Vercel frontend from the Railway API.
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  }));
   app.use(compression());
 
   // Configure CORS with specific origins
-  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
+  const allowedOrigins = (process.env.ALLOWED_ORIGINS?.split(',') ?? [
     'http://localhost:3000',
-  ];
+    'https://school-dms.vercel.app',
+  ]).map((origin) => origin.trim()).filter(Boolean);
   app.enableCors({
     origin: allowedOrigins,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
