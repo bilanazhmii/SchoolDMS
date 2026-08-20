@@ -1,6 +1,6 @@
 "use client";
 
-import { FC, useCallback, useState } from 'react';
+import { FC, useCallback, useMemo, useState } from 'react';
 
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -23,6 +23,7 @@ const ShareDialog: FC<{
   const [copying, setCopying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const qrSrc = useMemo(() => url ? `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(url)}` : null, [url]);
 
   const generate = useCallback(async () => {
     if (!fileId && !folderId) return;
@@ -93,6 +94,13 @@ const ShareDialog: FC<{
               <span className="break-all">{url}</span>
             </div>
             <div className="mb-3 rounded bg-surface-active p-2 text-xs text-foreground-muted">Permission: <strong className="text-foreground">{perm}</strong></div>
+            {qrSrc && (
+              <div className="mb-3 flex flex-col items-center gap-2 rounded border border-border bg-white p-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={qrSrc} alt="QR code for custom share link" className="h-48 w-48" />
+                <span className="text-[10px] text-black">Scan untuk membuka sebagai guest</span>
+              </div>
+            )}
             <div className="flex gap-2">
               <Button onClick={copy} variant="secondary" className="flex-1">
                 <Copy className="mr-1 h-4 w-4" />

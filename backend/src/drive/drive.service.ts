@@ -89,9 +89,10 @@ export class DriveService implements OnModuleInit {
       });
       for (const account of accounts) {
         try {
-          const result = await this.pullSync(account.profileId);
+          const pushed = await this.pushSync(account.profileId);
+          const pulled = await this.pullSync(account.profileId);
           this.logger.log(
-            `Auto-pull for ${account.profileId}: ${JSON.stringify(result)}`,
+            `Auto-sync for ${account.profileId}: push=${JSON.stringify(pushed)} pull=${JSON.stringify(pulled)}`,
           );
         } catch (e) {
           this.logger.warn(
@@ -230,6 +231,9 @@ export class DriveService implements OnModuleInit {
       }
     }
 
+        void this.pushSync(profile.id).catch((error) => {
+      this.logger.warn(`Initial Drive push failed for ${profile.id}: ${(error as Error).message}`);
+    });
     return { success: true };
   }
 
@@ -259,17 +263,76 @@ export class DriveService implements OnModuleInit {
     return res.token;
   }
 
+  async ensureFolderPathForProfile(profileId: string, relativeFilePath: string) {
+    const token = await this.getAccessTokenForProfile(profileId);
+    if (!token) return null;
+    const rootFolderId = await this.ensureRootFolder(profileId, token);
+    if (!rootFolderId) return null;
+
+    const parts = relativeFilePath.replace(/\\/g, '/').replace(/^\/+/, '').split('/').filter(Boolean).slice(0, -1);
+    let parentId = rootFolderId;
+    const oauth2 = this.createOAuthClient();
+    oauth2.setCredentials({ access_token: token });
+    const drive = google.drive({ version: 'v3', auth: oauth2 });
+
+    for (const name of parts) {
+      const existing = await drive.files.list({
+        q: `'${parentId}' in parents and name = '${name.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+        fields: 'files(id, name)',
+        pageSize: 1,
+      });
+      const found = existing.data.files?.[0]?.id;
+      if (found) {
+        parentId = found;
+        continue;
+      }
+      const created = await drive.files.create({
+        requestBody: { name, mimeType: 'application/vnd.google-apps.folder', parents: [parentId] },
+        fields: 'id',
+      });
+      if (!created.data.id) return null;
+      parentId = created.data.id;
+    }
+    return parentId;
+  }
+
+  async createFolderForProfile(profileId: string, name: string, parentFolderId?: string | null) {
+    const token = await this.getAccessTokenForProfile(profileId);
+    if (!token) return null;
+    const rootFolderId = parentFolderId ?? (await this.ensureRootFolder(profileId, token));
+    if (!rootFolderId) return null;
+    const oauth2 = this.createOAuthClient();
+    oauth2.setCredentials({ access_token: token });
+    const drive = google.drive({ version: 'v3', auth: oauth2 });
+    const escapedName = name.replace(/'/g, "\\'");
+    const existing = await drive.files.list({
+      q: `'${rootFolderId}' in parents and name = '${escapedName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+      fields: 'files(id, name)',
+      pageSize: 1,
+    });
+    if (existing.data.files?.[0]?.id) return existing.data.files[0].id;
+    const created = await drive.files.create({
+      requestBody: { name, mimeType: 'application/vnd.google-apps.folder', parents: [rootFolderId] },
+      fields: 'id, name',
+    });
+    return created.data.id ?? null;
+  }
+
   async uploadFileForProfile(
     profileId: string,
     file: { name: string; mimeType: string; buffer: Buffer },
     parentFolderId?: string | null,
+    relativeFilePath?: string,
   ) {
     const token = await this.getAccessTokenForProfile(profileId);
     if (!token) return null;
     const oauth2 = this.createOAuthClient();
     oauth2.setCredentials({ access_token: token });
     const drive = google.drive({ version: 'v3', auth: oauth2 });
-    const targetFolderId = parentFolderId ?? (await this.ensureRootFolder(profileId, token));
+    const targetFolderId = parentFolderId
+      ?? (relativeFilePath
+        ? await this.ensureFolderPathForProfile(profileId, relativeFilePath)
+        : await this.ensureRootFolder(profileId, token));
     const result = await drive.files.create({
       requestBody: {
         name: file.name,
@@ -366,6 +429,54 @@ export class DriveService implements OnModuleInit {
     })).data.id;
     if (folderId && account) await this.prisma.driveAccount.update({ where: { id: account.id }, data: { rootFolderId: folderId } });
     return folderId ?? null;
+  }
+
+  async pushSync(profileId: string) {
+    const token = await this.getAccessTokenForProfile(profileId);
+    if (!token) return { connected: false, uploaded: 0, skipped: 0 };
+
+    const files = await this.prisma.file.findMany({
+      where: { ownerId: profileId, deletedAt: null, googleDriveFileId: null },
+      orderBy: { updatedAt: 'asc' },
+    });
+    let uploaded = 0;
+    let skipped = 0;
+
+    for (const file of files) {
+      try {
+        const latest = await this.prisma.fileVersion.findFirst({
+          where: { fileId: file.id },
+          orderBy: { versionNumber: 'desc' },
+        });
+        if (!latest?.storagePath) {
+          skipped++;
+          continue;
+        }
+        const buffer = await this.storage.download(latest.storagePath);
+        const folder = file.folderId
+          ? await this.prisma.folder.findUnique({ where: { id: file.folderId } })
+          : null;
+        const driveFile = await this.uploadFileForProfile(
+          profileId,
+          { name: file.name, mimeType: file.mimeType, buffer },
+          folder?.googleDriveFolderId,
+          file.relativePath,
+        );
+        if (!driveFile?.id) {
+          skipped++;
+          continue;
+        }
+        await this.prisma.file.update({
+          where: { id: file.id },
+          data: { googleDriveFileId: driveFile.id, syncStatus: 'SYNCED', lastSyncedAt: new Date() },
+        });
+        uploaded++;
+      } catch (error) {
+        skipped++;
+        this.logger.warn(`Drive push skipped ${file.id}: ${(error as Error).message}`);
+      }
+    }
+    return { connected: true, uploaded, skipped };
   }
 
   /**

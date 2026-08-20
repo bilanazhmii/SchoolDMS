@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 
 import { AuditService } from '../../audit/audit.service';
+import { DriveService } from '../../drive/drive.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateFolderDto } from '../dto/create-folder.dto';
 import { UpdateFolderDto } from '../dto/update-folder.dto';
@@ -14,6 +15,7 @@ export class FolderService {
   constructor(
     private prisma: PrismaService,
     private audit: AuditService,
+    private drive: DriveService,
   ) {}
 
   async rootFolders(profileId: string) {
@@ -86,6 +88,19 @@ export class FolderService {
           'PRIVATE' | 'RESTRICTED' | 'ORGANIZATION' | 'PUBLIC',
       },
     });
+
+    try {
+      const parentDriveId = parent?.googleDriveFolderId ?? null;
+      const driveFolderId = await this.drive.createFolderForProfile(profileId, folder.name, parentDriveId);
+      if (driveFolderId) {
+        return this.prisma.folder.update({
+          where: { id: folder.id },
+          data: { googleDriveFolderId: driveFolderId, syncStatus: 'SYNCED', lastSyncedAt: new Date() },
+        });
+      }
+    } catch {
+      // Drive mirroring is best-effort; the local folder remains usable.
+    }
 
     await this.audit.log(profileId, 'CREATE', 'FOLDER', folder.id, {
       name: folder.name,

@@ -211,6 +211,7 @@ export class FileService {
           buffer: fileMeta.buffer as Buffer,
         },
         folder?.googleDriveFolderId,
+        created.relativePath,
       );
       if (driveFile?.id) {
         return this.prisma.file.update({

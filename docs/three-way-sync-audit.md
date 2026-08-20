@@ -43,3 +43,13 @@ Share dialog sekarang menerima target file atau folder, memiliki tombol Share la
 Guest endpoint dibagi menjadi metadata, preview inline, dan download. `VIEW` serta `COMMENT` dapat membuka preview tanpa login; `DOWNLOAD` dan `EDIT` dapat mengunduh; COMMENT tidak dapat mengunduh. Folder share menampilkan file di dalam folder dan memvalidasi bahwa file yang diminta memang berada di folder tersebut. QR panel sekarang menolak URL invalid atau undefined dan hanya menampilkan QR untuk URL guest dengan pola `/s/{token}`.
 
 Setelah deployment, uji API dengan membuat satu link untuk file A, satu link untuk file B, dan satu link untuk folder. Pastikan token ketiganya berbeda, buka link VIEW di browser incognito, coba preview image/video/audio/PDF, lalu pastikan link COMMENT tidak mengunduh, link DOWNLOAD dapat mengunduh, dan folder link hanya menampilkan isi folder target.
+
+## Perbaikan terakhir: full view, QR custom, dan mirror Google Drive
+
+Preview panel kini menyediakan tombol `Buka penuh` dan lightbox full-screen untuk gambar, video, audio, PDF, dan text. Gambar dapat diklik untuk zoom/full view. Format yang tidak dapat dirender tetap memiliki fallback Buka/Download.
+
+Share dialog kini langsung menampilkan QR setelah custom share link dibuat. QR memakai URL lengkap dengan token aktual, bukan URL yang dibangun dari nilai undefined.
+
+Mirror Drive diperkuat pada tiga titik. Folder baru dibuat idempotent di dalam root `SchoolDMS` dan menyimpan `googleDriveFolderId`. Upload file menggunakan relative path untuk membuat struktur nested folder Drive. File backend yang dibuat sebelum Google Drive terhubung sekarang dikirim ulang lewat `pushSync`, endpoint `GET /drive/push`, dan tombol `GET /drive/sync` kini melakukan push lalu pull. Reconciliation juga dipanggil setelah OAuth Drive berhasil dan pada auto-sync berkala.
+
+Audit pada browser akun Google Drive yang terhubung menunjukkan folder root `SchoolDMS` memang sudah ada di My Drive. Isi folder belum dapat dibuka melalui interaksi browser yang timeout, sehingga keberadaan root folder belum membuktikan seluruh file sudah termirror. Setelah backend terbaru dideploy, gunakan `Sync Drive` atau `GET /drive/sync` untuk memaksa push/pull ulang.

@@ -40,7 +40,16 @@ export class DriveController {
   @Get('sync')
   @ApiOkResponse({ description: 'Pull files from Google Drive into the backend' })
   async sync(@CurrentUser() user: AuthenticatedProfile) {
-    return this.driveService.pullSync(user.id);
+    const push = await this.driveService.pushSync(user.id);
+    const pull = await this.driveService.pullSync(user.id);
+    return { push, pull };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('push')
+  @ApiOkResponse({ description: 'Push backend files and folders to Google Drive' })
+  async push(@CurrentUser() user: AuthenticatedProfile) {
+    return this.driveService.pushSync(user.id);
   }
 
   @UseGuards(JwtAuthGuard)
