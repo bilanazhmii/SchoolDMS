@@ -73,3 +73,13 @@ The identical-link behavior was caused by the frontend share dialog retaining it
 Share links now persist an optional description and expose it on the public file/folder page. The public EDIT permission has a real save path for text-like files such as TXT, CSV, JSON, XML, Markdown, JavaScript, and TypeScript. Saving creates a new file version, updates the SHA-256 checksum, and attempts to mirror the new bytes to Google Drive. Images, video, audio, PDF, and other binary formats support preview, play, full view, and download according to permission; arbitrary binary-media editing is not represented as a fake text editor.
 
 Final validation completed with Prisma Client generation, backend build, 3 test suites and 6 tests passing, web build passing, and `git diff --check` passing. A production deploy is still required for these changes to become active on Railway and Vercel. Apply migration `20260820143000_add_share_description` before using descriptions in production.
+
+## Final folder hierarchy and Drive synchronization fix
+
+The previous sync implementation only listed direct children of the root and did not reconcile backend folders before uploading files. It could therefore leave folders at the My Drive root or fail to create the web folder hierarchy under `SchoolDMS`.
+
+The Drive root lookup now targets a top-level My Drive folder named `SchoolDMS`. Folder push runs before file push, creates or reuses each folder under the correct parent, moves legacy mapped folders under the correct parent, stores `googleDriveFolderId`, and marks folder sync status. File push then uses the mapped nested folder and relative path.
+
+Drive pull is now recursive. It traverses folders below `SchoolDMS`, creates or updates backend Folder records with matching parent relationships and relative paths, then creates or versions File records inside those backend folders. This prevents Drive folders from being flattened into My Files and prevents Drive folders from being mistaken for files.
+
+The updated backend compiles, the existing 3 test suites with 6 tests pass, and the web build passes. Production still requires the latest Railway deployment and a manual `Sync Drive` action after deployment. The sync response now reports folder creation/reconciliation counts in addition to file upload and pull counts.

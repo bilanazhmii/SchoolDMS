@@ -17,6 +17,18 @@ import type { IStorageService } from '../storage/storage.service.interface';
 import { STORAGE_SERVICE_TOKEN } from '../storage/storage.module';
 
 const ALGORITHM = 'aes-256-gcm';
+const DRIVE_FOLDER_MIME = 'application/vnd.google-apps.folder';
+
+type DriveTreeEntry = {
+  id: string;
+  name: string;
+  mimeType: string;
+  size?: string | null;
+  modifiedTime?: string | null;
+  parentId: string;
+  relativePath: string;
+  isFolder: boolean;
+};
 
 @Injectable()
 export class DriveService implements OnModuleInit {
@@ -419,7 +431,7 @@ export class DriveService implements OnModuleInit {
     oauth2.setCredentials({ access_token: accessToken });
     const drive = google.drive({ version: 'v3', auth: oauth2 });
     const existing = await drive.files.list({
-      q: "name = 'SchoolDMS' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+      q: "'root' in parents and name = 'SchoolDMS' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
       fields: 'files(id)',
       pageSize: 1,
     });
@@ -431,9 +443,52 @@ export class DriveService implements OnModuleInit {
     return folderId ?? null;
   }
 
+  async pushFoldersSync(profileId: string) {
+    const token = await this.getAccessTokenForProfile(profileId);
+    if (!token) return { connected: false, created: 0, skipped: 0 };
+    const rootFolderId = await this.ensureRootFolder(profileId, token);
+    if (!rootFolderId) return { connected: true, created: 0, skipped: 0 };
+
+    const folders = await this.prisma.folder.findMany({
+      where: { ownerId: profileId, deletedAt: null },
+      orderBy: { relativePath: 'asc' },
+    });
+    const driveIds = new Map<string, string>();
+    let created = 0;
+    let skipped = 0;
+    for (const folder of folders) {
+      try {
+        const parentId = folder.parentFolderId
+          ? driveIds.get(folder.parentFolderId) ?? (await this.prisma.folder.findUnique({ where: { id: folder.parentFolderId }, select: { googleDriveFolderId: true } }))?.googleDriveFolderId ?? rootFolderId
+          : rootFolderId;
+        const driveFolderId = folder.googleDriveFolderId ?? await this.createFolderForProfile(profileId, folder.name, parentId);
+        if (folder.googleDriveFolderId) {
+          await this.moveFileForProfile(profileId, folder.googleDriveFolderId, parentId);
+        }
+        if (!driveFolderId) {
+          skipped++;
+          continue;
+        }
+        driveIds.set(folder.id, driveFolderId);
+        if (folder.googleDriveFolderId !== driveFolderId || folder.syncStatus !== 'SYNCED') {
+          await this.prisma.folder.update({
+            where: { id: folder.id },
+            data: { googleDriveFolderId: driveFolderId, syncStatus: 'SYNCED', lastSyncedAt: new Date() },
+          });
+          created++;
+        }
+      } catch (error) {
+        skipped++;
+        this.logger.warn(`Drive folder push skipped ${folder.id}: ${(error as Error).message}`);
+      }
+    }
+    return { connected: true, created, skipped };
+  }
+
   async pushSync(profileId: string) {
     const token = await this.getAccessTokenForProfile(profileId);
-    if (!token) return { connected: false, uploaded: 0, skipped: 0 };
+    if (!token) return { connected: false, uploaded: 0, folders: 0, skipped: 0 };
+    const folderResult = await this.pushFoldersSync(profileId);
 
     const files = await this.prisma.file.findMany({
       where: { ownerId: profileId, deletedAt: null, googleDriveFileId: null },
@@ -476,7 +531,40 @@ export class DriveService implements OnModuleInit {
         this.logger.warn(`Drive push skipped ${file.id}: ${(error as Error).message}`);
       }
     }
-    return { connected: true, uploaded, skipped };
+    return { connected: true, uploaded, folders: folderResult.created, skipped: skipped + folderResult.skipped };
+  }
+
+  private async listDriveTree(
+    drive: ReturnType<typeof google.drive>,
+    parentId: string,
+    relativePrefix = '',
+  ): Promise<DriveTreeEntry[]> {
+    const response = await drive.files.list({
+      q: `'${parentId}' in parents and trashed = false`,
+      fields: 'files(id, name, mimeType, size, modifiedTime)',
+      pageSize: 200,
+    });
+    const entries: DriveTreeEntry[] = [];
+    for (const file of response.data.files ?? []) {
+      if (!file.id || !file.name || !file.mimeType) continue;
+      const relativePath = relativePrefix ? `${relativePrefix}/${file.name}` : file.name;
+      const isFolder = file.mimeType === DRIVE_FOLDER_MIME;
+      const entry: DriveTreeEntry = {
+        id: file.id,
+        name: file.name,
+        mimeType: file.mimeType,
+        size: file.size,
+        modifiedTime: file.modifiedTime,
+        parentId,
+        relativePath,
+        isFolder,
+      };
+      entries.push(entry);
+      if (isFolder) {
+        entries.push(...await this.listDriveTree(drive, file.id, relativePath));
+      }
+    }
+    return entries;
   }
 
   /**
@@ -490,119 +578,89 @@ export class DriveService implements OnModuleInit {
     if (!token) return { connected: false };
 
     const rootFolderId = await this.ensureRootFolder(profileId, token);
-    if (!rootFolderId) return { connected: true, created: 0, updated: 0, skipped: 0 };
+    if (!rootFolderId) return { connected: true, folders: 0, created: 0, updated: 0, skipped: 0 };
 
     const oauth2 = this.createOAuthClient();
     oauth2.setCredentials({ access_token: token });
     const drive = google.drive({ version: 'v3', auth: oauth2 });
-
-    const res = await drive.files.list({
-      q: `'${rootFolderId}' in parents and trashed = false`,
-      fields: 'files(id, name, mimeType, size, modifiedTime, webViewLink)',
-      pageSize: 200,
-    });
-
+    const entries = await this.listDriveTree(drive, rootFolderId);
+    const backendFolderIds = new Map<string, string>();
+    let folderCount = 0;
     let created = 0;
     let updated = 0;
     let skipped = 0;
 
-    for (const f of res.data.files ?? []) {
-      if (!f.id || !f.name) continue;
+    for (const entry of entries.filter((item) => item.isFolder)) {
       try {
-        const existing = await this.prisma.file.findFirst({
-          where: { ownerId: profileId, googleDriveFileId: f.id },
+        const parentFolderId = entry.parentId === rootFolderId ? null : backendFolderIds.get(entry.parentId) ?? null;
+        const relativePath = `/${entry.relativePath}`;
+        const existingFolder = await this.prisma.folder.findFirst({
+          where: { ownerId: profileId, OR: [{ googleDriveFolderId: entry.id }, { relativePath }] },
         });
+        const folder = existingFolder
+          ? await this.prisma.folder.update({
+              where: { id: existingFolder.id },
+              data: { name: entry.name, parentFolderId, relativePath, googleDriveFolderId: entry.id, syncStatus: 'SYNCED', lastSyncedAt: new Date() },
+            })
+          : await this.prisma.folder.create({
+              data: { name: entry.name, ownerId: profileId, parentFolderId, relativePath, googleDriveFolderId: entry.id, syncStatus: 'SYNCED', lastSyncedAt: new Date() },
+            });
+        backendFolderIds.set(entry.id, folder.id);
+        folderCount++;
+      } catch (error) {
+        skipped++;
+        this.logger.warn(`pullSync folder skipped ${entry.name}: ${(error as Error).message}`);
+      }
+    }
 
-        if (!existing) {
-          const buffer = await this.downloadDriveFile(drive, f.id);
-          if (!buffer) {
-            skipped++;
-            continue;
-          }
-          const mimeType = f.mimeType ?? 'application/octet-stream';
-          const size = BigInt(Number(f.size ?? buffer.length));
-          const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
-
-          const file = await this.prisma.file.create({
-            data: {
-              name: f.name,
-              ownerId: profileId,
-              mimeType,
-              size,
-              relativePath: `/${f.name}`,
-              googleDriveFileId: f.id,
-              syncStatus: 'SYNCED',
-              lastSyncedAt: new Date(),
-            },
-          });
-
-          const storagePath = `files/${file.id}/v1`;
-          await this.storage.upload(buffer, storagePath, mimeType);
-          await this.prisma.fileVersion.create({
-            data: {
-              fileId: file.id,
-              versionNumber: 1,
-              size,
-              mimeType,
-              storagePath,
-              sha256,
-              syncStatus: 'SYNCED',
-              lastSyncedAt: new Date(),
-            },
-          });
-          created++;
-          continue;
-        }
-
-        const driveModified = f.modifiedTime ? new Date(f.modifiedTime) : new Date(0);
-        if (driveModified <= existing.updatedAt) {
-          skipped++;
-          continue;
-        }
-
-        // Last-write-wins: Drive file is newer -> new version in backend.
-        const buffer = await this.downloadDriveFile(drive, f.id);
+    for (const entry of entries.filter((item) => !item.isFolder)) {
+      try {
+        const folderId = entry.parentId === rootFolderId ? null : backendFolderIds.get(entry.parentId) ?? null;
+        const relativePath = `/${entry.relativePath}`;
+        const existing = await this.prisma.file.findFirst({
+          where: { ownerId: profileId, OR: [{ googleDriveFileId: entry.id }, { relativePath }] },
+        });
+        const buffer = await this.downloadDriveFile(drive, entry.id);
         if (!buffer) {
           skipped++;
           continue;
         }
-        const mimeType = f.mimeType ?? existing.mimeType;
-        const size = BigInt(Number(f.size ?? buffer.length));
-        const versionNumber = existing.versionNumber + 1;
-        const storagePath = `files/${existing.id}/v${versionNumber}`;
+        const mimeType = entry.mimeType || existing?.mimeType || 'application/octet-stream';
+        const size = BigInt(Number(entry.size ?? buffer.length));
         const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
 
+        if (!existing) {
+          const file = await this.prisma.file.create({
+            data: { name: entry.name, ownerId: profileId, folderId, mimeType, size, relativePath, googleDriveFileId: entry.id, sha256, syncStatus: 'SYNCED', lastSyncedAt: new Date() },
+          });
+          const storagePath = `files/${file.id}/v1`;
+          await this.storage.upload(buffer, storagePath, mimeType);
+          await this.prisma.fileVersion.create({ data: { fileId: file.id, versionNumber: 1, size, mimeType, storagePath, sha256, syncStatus: 'SYNCED', lastSyncedAt: new Date() } });
+          created++;
+          continue;
+        }
+
+        const driveModified = entry.modifiedTime ? new Date(entry.modifiedTime) : new Date(0);
+        if (existing.sha256 === sha256 || driveModified <= existing.updatedAt) {
+          await this.prisma.file.update({ where: { id: existing.id }, data: { name: entry.name, folderId, relativePath, googleDriveFileId: entry.id } });
+          skipped++;
+          continue;
+        }
+
+        const versionNumber = existing.versionNumber + 1;
+        const storagePath = `files/${existing.id}/v${versionNumber}`;
         await this.storage.upload(buffer, storagePath, mimeType);
-        await this.prisma.fileVersion.create({
-          data: {
-            fileId: existing.id,
-            versionNumber,
-            size,
-            mimeType,
-            storagePath,
-            sha256,
-            syncStatus: 'SYNCED',
-            lastSyncedAt: new Date(),
-          },
-        });
-        await this.prisma.file.update({
-          where: { id: existing.id },
-          data: {
-            versionNumber,
-            size,
-            syncStatus: 'SYNCED',
-            lastSyncedAt: new Date(),
-          },
-        });
+        await this.prisma.fileVersion.create({ data: { fileId: existing.id, versionNumber, size, mimeType, storagePath, sha256, syncStatus: 'SYNCED', lastSyncedAt: new Date() } });
+        await this.prisma.file.update({ where: { id: existing.id }, data: { name: entry.name, folderId, relativePath, googleDriveFileId: entry.id, versionNumber, size, sha256, syncStatus: 'SYNCED', lastSyncedAt: new Date() } });
         updated++;
-      } catch (e) {
-        this.logger.warn(`pullSync skipped ${f.name}: ${(e as Error).message}`);
+      } catch (error) {
         skipped++;
+        this.logger.warn(`pullSync file skipped ${entry.name}: ${(error as Error).message}`);
       }
     }
 
-    this.logger.log(`Drive pullSync for ${profileId}: ${created} created, ${updated} updated, ${skipped} skipped`);
-    return { connected: true, created, updated, skipped };
+    this.logger.log(`Drive pullSync for ${profileId}: ${folderCount} folders, ${created} created, ${updated} updated, ${skipped} skipped`);
+    return { connected: true, folders: folderCount, created, updated, skipped };
   }
 
   private async downloadDriveFile(drive: ReturnType<typeof google.drive>, fileId: string): Promise<Buffer | null> {
