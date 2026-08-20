@@ -7,7 +7,7 @@ export class HealthController {
     return {
       status: 'ok',
       database: 'connected',
-      version: process.env.APP_VERSION ?? '2026-08-20-file-response-v2',
+      version: process.env.APP_VERSION ?? '2026-08-20-three-way-sync-v1',
       timestamp: new Date().toISOString(),
     };
   }
