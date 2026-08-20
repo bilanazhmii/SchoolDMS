@@ -27,7 +27,7 @@ const GridView: FC<{
   folders: FolderItem[];
   onOpenFolder?: (folder: FolderItem) => void;
   onShare?: (item: FileItem | FolderItem) => void;
-  onAction?: (action: 'rename' | 'copy' | 'delete', item: FileItem | FolderItem) => void;
+  onAction?: (action: 'rename' | 'copy' | 'move' | 'delete', item: FileItem | FolderItem) => void;
 }> = ({ files, folders, onOpenFolder, onShare, onAction }) => {
   const { selection, setSelection, setPreviewFile } = useExplorerContext();
 
@@ -77,7 +77,7 @@ const GridView: FC<{
           >
             <div className="absolute right-2 top-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0" aria-label={`Share ${f.name}`} onClick={(e) => { e.stopPropagation(); onShare?.(f); }}><Link2 className="h-3.5 w-3.5" /></Button>
-              <ContextMenu label={f.name} onRename={() => onAction?.('rename', f)} onCopy={() => onAction?.('copy', f)} onDelete={() => onAction?.('delete', f)} />
+              <ContextMenu label={f.name} onRename={() => onAction?.('rename', f)} onCopy={() => onAction?.('copy', f)} onMove={() => onAction?.('move', f)} onDelete={() => onAction?.('delete', f)} />
             </div>
 
             <input type="checkbox" checked={selected} onChange={() => toggle(f.id)} onClick={(e) => e.stopPropagation()} aria-label={`Select ${f.name}`} className="absolute left-2 top-2 h-4 w-4 accent-primary" />
@@ -132,7 +132,7 @@ const GridView: FC<{
               <Button variant="ghost" size="sm" className="h-6 w-6 p-0" aria-label={`Share ${f.name}`} onClick={(e) => { e.stopPropagation(); onShare?.(f); }}>
                 <Link2 className="h-3.5 w-3.5" />
               </Button>
-              <ContextMenu label={f.name} onRename={() => onAction?.('rename', f)} onCopy={() => onAction?.('copy', f)} onDelete={() => onAction?.('delete', f)} />
+              <ContextMenu label={f.name} onRename={() => onAction?.('rename', f)} onCopy={() => onAction?.('copy', f)} onMove={() => onAction?.('move', f)} onDelete={() => onAction?.('delete', f)} />
             </div>
             {f.favorite && (
               <div className="absolute bottom-2 right-2">

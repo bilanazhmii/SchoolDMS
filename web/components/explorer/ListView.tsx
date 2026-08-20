@@ -15,7 +15,7 @@ const ListView: FC<{
   folders: FolderItem[];
   onOpenFolder?: (folder: FolderItem) => void;
   onShare?: (item: FileItem | FolderItem) => void;
-  onAction?: (action: 'rename' | 'copy' | 'delete', item: FileItem | FolderItem) => void;
+  onAction?: (action: 'rename' | 'copy' | 'move' | 'delete', item: FileItem | FolderItem) => void;
 }> = ({ files, folders, onOpenFolder, onShare, onAction }) => {
   const { selection, setSelection, setPreviewFile } = useExplorerContext();
 
@@ -71,7 +71,7 @@ const ListView: FC<{
                 <td className="px-3 py-2.5 text-xs text-foreground-muted hidden md:table-cell">{formatDate(folder.createdAt)}</td>
                 <td className="px-3 py-2.5 text-xs text-foreground-muted hidden sm:table-cell">—</td>
                 <td className="px-3 py-2.5 hidden lg:table-cell"><span className="inline-flex items-center gap-1.5 text-2xs text-foreground-muted"><span className="h-1.5 w-1.5 rounded-full bg-primary" />Folder</span></td>
-                <td className="px-3 py-2.5 w-20"><div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><Button variant="ghost" size="sm" className="h-7 w-7 p-0" aria-label={`Share ${folder.name}`} onClick={(e) => { e.stopPropagation(); onShare?.(folder); }}><Link2 className="h-3.5 w-3.5" /></Button><ContextMenu label={folder.name} onRename={() => onAction?.('rename', folder)} onCopy={() => onAction?.('copy', folder)} onDelete={() => onAction?.('delete', folder)} /></div></td>
+                <td className="px-3 py-2.5 w-20"><div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><Button variant="ghost" size="sm" className="h-7 w-7 p-0" aria-label={`Share ${folder.name}`} onClick={(e) => { e.stopPropagation(); onShare?.(folder); }}><Link2 className="h-3.5 w-3.5" /></Button><ContextMenu label={folder.name} onRename={() => onAction?.('rename', folder)} onCopy={() => onAction?.('copy', folder)} onMove={() => onAction?.('move', folder)} onDelete={() => onAction?.('delete', folder)} /></div></td>
               </tr>
             );
           })}
@@ -86,7 +86,7 @@ const ListView: FC<{
                 <td className="px-3 py-2.5 text-xs text-foreground-muted hidden md:table-cell">{formatDate(file.modifiedAt)}</td>
                 <td className="px-3 py-2.5 text-xs text-foreground-muted hidden sm:table-cell">{formatSize(file.size)}</td>
                 <td className="px-3 py-2.5 hidden lg:table-cell"><span className="inline-flex items-center gap-1.5 text-2xs text-foreground-muted"><span className={cn('h-1.5 w-1.5 rounded-full', file.syncStatus === 'SYNCED' ? 'bg-success' : file.syncStatus === 'FAILED' || file.syncStatus === 'CONFLICT' ? 'bg-danger' : 'bg-warning')} />{formatSyncStatus(file.syncStatus)}</span></td>
-                <td className="px-3 py-2.5 w-20"><div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><Button variant="ghost" size="sm" className="h-7 w-7 p-0" aria-label={`Share ${file.name}`} onClick={(e) => { e.stopPropagation(); onShare?.(file); }}><Link2 className="h-3.5 w-3.5" /></Button><ContextMenu label={file.name} onRename={() => onAction?.('rename', file)} onCopy={() => onAction?.('copy', file)} onDelete={() => onAction?.('delete', file)} /></div></td>
+                <td className="px-3 py-2.5 w-20"><div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><Button variant="ghost" size="sm" className="h-7 w-7 p-0" aria-label={`Share ${file.name}`} onClick={(e) => { e.stopPropagation(); onShare?.(file); }}><Link2 className="h-3.5 w-3.5" /></Button><ContextMenu label={file.name} onRename={() => onAction?.('rename', file)} onCopy={() => onAction?.('copy', file)} onMove={() => onAction?.('move', file)} onDelete={() => onAction?.('delete', file)} /></div></td>
               </tr>
             );
           })}

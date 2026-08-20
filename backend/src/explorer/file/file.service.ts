@@ -41,6 +41,13 @@ export class FileService {
     this.fileValidator = new FileValidator(validationConfig);
   }
 
+  private serializeVersion<T extends { size: bigint | number | null }>(version: T) {
+    return {
+      ...version,
+      size: version.size == null ? null : Number(version.size),
+    };
+  }
+
   private serializeFile<T extends { size: bigint | number }>(file: T) {
     return { ...file, size: Number(file.size) };
   }
@@ -56,9 +63,8 @@ export class FileService {
       orderBy: { versionNumber: 'desc' },
     });
     return {
-      ...file,
-      size: Number(file.size),
-      versions: versions.map((version) => ({ ...version, size: version.size == null ? null : Number(version.size) })),
+      ...this.serializeFile(file),
+      versions: versions.map((version) => this.serializeVersion(version)),
     };
   }
 
@@ -298,7 +304,9 @@ export class FileService {
     } catch (error) {
       this.logger.warn(`Google Drive trash failed for ${id}`, error as Error);
     }
-    return this.serializeFile(deleted);
+    // Delete callers only need an acknowledgement. Returning a small DTO avoids
+    // sending a Prisma row through Express serialization on a destructive path.
+    return { id: deleted.id, name: deleted.name, deletedAt: deleted.deletedAt };
   }
 
   async softDeleteByRelativePath(profileId: string, relativePath: string) {
@@ -332,10 +340,11 @@ export class FileService {
     const file = await this.prisma.file.findUnique({ where: { id } });
     if (!file || file.ownerId !== profileId)
       throw new NotFoundException('File not found');
-    return this.prisma.fileVersion.findMany({
+    const versions = await this.prisma.fileVersion.findMany({
       where: { fileId: id },
       orderBy: { versionNumber: 'desc' },
     });
+    return versions.map((version) => this.serializeVersion(version));
   }
 
   async moveByRelativePath(profileId: string, oldRelativePath: string, newRelativePath: string) {

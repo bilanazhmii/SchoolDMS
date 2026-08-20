@@ -9,7 +9,7 @@ import {
   ExplorerProvider,
   useExplorerContext,
 } from '../../providers/explorer-provider';
-import { copyFolder, copyItem, deleteFolder, deleteItem, fetchFolderContents, renameFile, renameFolder } from '../../services/explorer';
+import { copyFolder, copyItem, deleteFolder, deleteItem, fetchFolderContents, moveFolder, moveItem, renameFile, renameFolder } from '../../services/explorer';
 import { createShareLink, sharePageUrl } from '../../services/sharing';
 import type { FileItem, FolderItem } from '../../types/explorer';
 import Breadcrumb from '../breadcrumb';
@@ -23,6 +23,7 @@ import QRPanel from './QRPanel';
 import ShareDialog from './ShareDialog';
 import Toolbar from './Toolbar';
 import VersionHistoryPanel from './VersionHistoryPanel';
+import MoveDialog from './MoveDialog';
 
 const ExplorerInner: React.FC = () => {
   const { currentFolderId, setCurrentFolderId, previewFile, setPreviewFile, setSelection } = useExplorerContext();
@@ -46,9 +47,16 @@ const ExplorerInner: React.FC = () => {
     setCurrentFolderId(folder.id);
   };
 
-  const handleAction = async (action: 'rename' | 'copy' | 'delete', item: FileItem | FolderItem) => {
+  const handleAction = async (action: 'rename' | 'copy' | 'move' | 'delete', item: FileItem | FolderItem) => {
     const isFile = 'mimeType' in item;
+    if (action === 'move') {
+      setMoveTarget(item);
+      return;
+    }
+    if (action === 'delete' && !window.confirm(`Delete ${item.name}?`)) return;
     try {
+      setActionBusy(true);
+      setActionMessage(null);
       if (action === 'rename') {
         const nextName = window.prompt('Rename item', item.name);
         if (!nextName?.trim() || nextName.trim() === item.name) return;
@@ -57,20 +65,47 @@ const ExplorerInner: React.FC = () => {
       } else if (action === 'copy') {
         if (isFile) await copyItem(item.id, currentFolderId ?? undefined);
         else await copyFolder(item.id);
-      } else if (window.confirm(`Delete ${item.name}?`)) {
+      } else {
         if (isFile) await deleteItem(item.id);
         else await deleteFolder(item.id);
         setSelection([]);
       }
       await refetch();
       qc.invalidateQueries({ queryKey: ['explorer', 'root-folders'] });
+      setActionMessage({ type: 'success', text: `${item.name} ${action === 'copy' ? 'was copied' : action === 'delete' ? 'was moved to Trash' : 'was renamed'}.` });
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Action failed');
+      setActionMessage({ type: 'error', text: error instanceof Error ? error.message : 'Action failed.' });
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const confirmMove = async (destination: string | null) => {
+    if (!moveTarget) return;
+    const target = moveTarget;
+    const isFile = 'mimeType' in target;
+    try {
+      setActionBusy(true);
+      setActionMessage(null);
+      if (isFile) await moveItem(target.id, destination ?? undefined);
+      else await moveFolder(target.id, destination);
+      setMoveTarget(null);
+      setSelection([]);
+      await refetch();
+      qc.invalidateQueries({ queryKey: ['explorer', 'root-folders'] });
+      setActionMessage({ type: 'success', text: `${target.name} was moved successfully.` });
+    } catch (error) {
+      setActionMessage({ type: 'error', text: error instanceof Error ? error.message : 'Move failed.' });
+    } finally {
+      setActionBusy(false);
     }
   };
 
   const [shareUrl, setShareUrl] = useState<string | undefined>(undefined);
   const [shareTarget, setShareTarget] = useState<{ fileId?: string; folderId?: string; name: string } | null>(null);
+  const [moveTarget, setMoveTarget] = useState<FileItem | FolderItem | null>(null);
+  const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,6 +145,7 @@ const ExplorerInner: React.FC = () => {
             ]}
           />
         </div>
+        {actionMessage && <div className={actionMessage.type === 'success' ? 'mx-4 mt-3 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-xs text-success' : 'mx-4 mt-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger'} role="status">{actionMessage.text}</div>}
         <Toolbar folderId={currentFolderId ?? undefined} items={[...folders, ...files]} />
 
         {isError ? (
@@ -142,6 +178,7 @@ const ExplorerInner: React.FC = () => {
           </div>
         </div>
       </aside>
+      <MoveDialog open={Boolean(moveTarget)} title={moveTarget ? `Move ${moveTarget.name}` : 'Move item'} onClose={() => { if (!actionBusy) setMoveTarget(null); }} onConfirm={confirmMove} busy={actionBusy} />
       <ShareDialog
         fileId={shareTarget?.fileId}
         folderId={shareTarget?.folderId}
