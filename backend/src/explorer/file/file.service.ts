@@ -288,7 +288,7 @@ export class FileService {
     const file = await this.prisma.file.findUnique({ where: { id } });
     if (!file || file.ownerId !== profileId)
       throw new NotFoundException('File not found');
-    if (file.deletedAt) return this.serializeFile(file);
+    if (file.deletedAt) return { id: file.id, name: file.name, deletedAt: file.deletedAt };
 
     const deleted = await this.prisma.file.update({
       where: { id },
