@@ -15,6 +15,8 @@ public sealed class FileMonitorService : IFileMonitorService
     private readonly ILogger<FileMonitorService> _logger;
     private readonly ConcurrentDictionary<string, DateTimeOffset> _debounceTimes = new(StringComparer.OrdinalIgnoreCase);
     private readonly TimeSpan _debounceWindow = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan DeleteConfirmationDelay = TimeSpan.FromMilliseconds(750);
+
     private readonly HashSet<string> _temporaryFileExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".tmp",
@@ -26,6 +28,8 @@ public sealed class FileMonitorService : IFileMonitorService
     };
 
     private readonly List<FileSystemWatcher> _watchers = [];
+    private readonly ConcurrentDictionary<string, byte> _knownDirectories = new(StringComparer.OrdinalIgnoreCase);
+
     private CancellationTokenSource? _cts;
     private Task? _processingTask;
 
@@ -57,7 +61,10 @@ public sealed class FileMonitorService : IFileMonitorService
             return Task.CompletedTask;
         }
 
+        RememberDirectories(rootPath);
+
         var watcher = new FileSystemWatcher(rootPath)
+
         {
             IncludeSubdirectories = true,
             NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.CreationTime
@@ -90,12 +97,28 @@ public sealed class FileMonitorService : IFileMonitorService
 
     private void OnChanged(object sender, FileSystemEventArgs e)
     {
-        _ = Task.Run(() => HandleEventAsync(e.FullPath, ResolveOperation(e.ChangeType)), CancellationToken.None);
+        var watchedRoot = (sender as FileSystemWatcher)?.Path;
+        var isKnownDirectory = _knownDirectories.ContainsKey(e.FullPath);
+        if (e.ChangeType != WatcherChangeTypes.Deleted && Directory.Exists(e.FullPath))
+        {
+            _knownDirectories.TryAdd(e.FullPath, 0);
+            isKnownDirectory = true;
+        }
+
+        _ = Task.Run(() => HandleEventAsync(e.FullPath, ResolveOperation(e.ChangeType), watchedRoot: watchedRoot, isDirectoryHint: isKnownDirectory), CancellationToken.None);
     }
 
     private void OnRenamed(object sender, RenamedEventArgs e)
     {
-        _ = Task.Run(() => HandleEventAsync(e.FullPath, SyncOperationType.Rename, e.OldFullPath), CancellationToken.None);
+        var watchedRoot = (sender as FileSystemWatcher)?.Path;
+        var wasKnownDirectory = _knownDirectories.TryRemove(e.OldFullPath, out _);
+        if (Directory.Exists(e.FullPath))
+        {
+            _knownDirectories.TryAdd(e.FullPath, 0);
+            wasKnownDirectory = true;
+        }
+
+        _ = Task.Run(() => HandleEventAsync(e.FullPath, SyncOperationType.Rename, e.OldFullPath, watchedRoot, wasKnownDirectory), CancellationToken.None);
     }
 
     private void OnError(object sender, ErrorEventArgs e)
@@ -103,23 +126,37 @@ public sealed class FileMonitorService : IFileMonitorService
         _logger.LogError(e.GetException(), "File watcher reported an error.");
     }
 
-    private async Task HandleEventAsync(string path, SyncOperationType operation, string? payload = null)
+    private async Task HandleEventAsync(string path, SyncOperationType operation, string? payload = null, string? watchedRoot = null, bool isDirectoryHint = false)
     {
         if (string.IsNullOrWhiteSpace(path) || IsIgnored(path) || _syncEngine.IsApplyingRemoteChanges)
         {
             return;
         }
 
-        if (Directory.Exists(path))
+        // A shutdown, disconnected volume, or temporarily unavailable sync root can
+        // produce delete-like watcher events. Never turn those into destructive web
+        // operations. A delete is propagated only when the watched root and the
+        // deleted item's parent remain healthy after a short confirmation window.
+        if (operation == SyncOperationType.Delete && !await IsConfirmedLocalDeleteAsync(path, watchedRoot))
+        {
+            _logger.LogWarning("Ignoring unconfirmed local delete event for {Path}; the sync root may be unavailable.", path);
+            return;
+        }
+
+        if (isDirectoryHint || Directory.Exists(path))
         {
             if (operation == SyncOperationType.Rename && payload is not null)
                 await _syncEngine.QueueFolderChangeAsync(path, operation, payload);
             else if (operation == SyncOperationType.Delete)
+            {
+                _knownDirectories.TryRemove(path, out _);
                 await _syncEngine.QueueFolderChangeAsync(path, operation);
+            }
             else
                 await _syncEngine.SyncFolderAsync(path);
             return;
         }
+
 
         if (operation != SyncOperationType.Delete && !await IsAccessibleAsync(path))
         {
@@ -145,7 +182,73 @@ public sealed class FileMonitorService : IFileMonitorService
         await _syncEngine.QueueFileChangeAsync(path, operation);
     }
 
+    private void RememberDirectories(string rootPath)
+    {
+        _knownDirectories.TryAdd(rootPath, 0);
+        try
+        {
+            foreach (var directory in Directory.EnumerateDirectories(rootPath, "*", SearchOption.AllDirectories))
+            {
+                _knownDirectories.TryAdd(directory, 0);
+            }
+        }
+        catch (IOException ex)
+        {
+            _logger.LogWarning(ex, "Could not fully index sync directories under {Root}.", rootPath);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogWarning(ex, "Could not access all sync directories under {Root}.", rootPath);
+        }
+    }
+
+    private async Task<bool> IsConfirmedLocalDeleteAsync(string path, string? watchedRoot)
+    {
+        if (string.IsNullOrWhiteSpace(watchedRoot)) return false;
+
+        try
+        {
+            var root = Path.GetFullPath(watchedRoot);
+            var deletedPath = Path.GetFullPath(path);
+            var rootPrefix = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+
+            // The sync root itself is never a deletable item. Keeping web data is
+            // safer than interpreting a missing/unmounted root as a full delete.
+            if (string.Equals(root, deletedPath, StringComparison.OrdinalIgnoreCase) ||
+                !deletedPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            await Task.Delay(DeleteConfirmationDelay);
+
+            if (!Directory.Exists(root)) return false;
+            if (File.Exists(deletedPath) || Directory.Exists(deletedPath)) return false;
+
+            var parent = Directory.GetParent(deletedPath);
+            if (parent is null || !Directory.Exists(parent.FullName)) return false;
+
+            // Force one directory read so disconnected/network-backed roots fail
+            // here instead of being treated as a valid local deletion.
+            _ = Directory.EnumerateFileSystemEntries(root).Take(1).ToArray();
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
     private async Task DrainDebouncedEventsAsync(CancellationToken cancellationToken)
+
     {
         while (!cancellationToken.IsCancellationRequested)
         {
