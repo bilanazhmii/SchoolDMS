@@ -75,10 +75,11 @@ public sealed class SqliteSyncQueue : ISyncQueue, IAsyncDisposable
             command.CommandText = @"
                 SELECT Id, FilePath, RelativePath, Operation, Sha256Hash, FileSize, RetryCount, Priority, Status, NextAttemptAt, LastError, CreatedAt, UpdatedAt, Payload
                 FROM SyncJobs
-                WHERE Status = @pending AND (NextAttemptAt IS NULL OR NextAttemptAt <= @now)
+                WHERE Status IN (@pending, @failed) AND (NextAttemptAt IS NULL OR NextAttemptAt <= @now)
                 ORDER BY Priority DESC, CreatedAt ASC
                 LIMIT 1;";
             command.Parameters.AddWithValue("@pending", (int)SyncJobStatus.Pending);
+            command.Parameters.AddWithValue("@failed", (int)SyncJobStatus.Failed);
             command.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow);
 
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -141,19 +142,30 @@ public sealed class SqliteSyncQueue : ISyncQueue, IAsyncDisposable
             await connection.OpenAsync(cancellationToken);
 
             await using var transaction = connection.BeginTransaction(IsolationLevel.Serializable);
+
+            var retryCommand = connection.CreateCommand();
+            retryCommand.Transaction = transaction;
+            retryCommand.CommandText = "SELECT RetryCount FROM SyncJobs WHERE Id = @id;";
+            retryCommand.Parameters.AddWithValue("@id", jobId.ToString());
+            var retryValue = await retryCommand.ExecuteScalarAsync(cancellationToken);
+            var retryCount = retryValue is null || retryValue == DBNull.Value ? 1 : Convert.ToInt32(retryValue) + 1;
+            var delaySeconds = Math.Min(300, Math.Pow(2, Math.Min(retryCount + 1, 8)));
+            var nextAttemptAt = DateTimeOffset.UtcNow.AddSeconds(delaySeconds);
+
             var command = connection.CreateCommand();
             command.Transaction = transaction;
             command.CommandText = @"
                 UPDATE SyncJobs
                 SET Status = @failed,
-                    RetryCount = RetryCount + 1,
+                    RetryCount = @retryCount,
                     LastError = @error,
                     NextAttemptAt = @nextAttemptAt,
                     UpdatedAt = @updatedAt
                 WHERE Id = @id;";
             command.Parameters.AddWithValue("@failed", (int)SyncJobStatus.Failed);
+            command.Parameters.AddWithValue("@retryCount", retryCount);
             command.Parameters.AddWithValue("@error", error);
-            command.Parameters.AddWithValue("@nextAttemptAt", DateTimeOffset.UtcNow.AddMinutes(Math.Min(30, Math.Pow(2, 1 + 1))));
+            command.Parameters.AddWithValue("@nextAttemptAt", nextAttemptAt);
             command.Parameters.AddWithValue("@updatedAt", DateTimeOffset.UtcNow);
             command.Parameters.AddWithValue("@id", jobId.ToString());
             await command.ExecuteNonQueryAsync(cancellationToken);
@@ -240,7 +252,9 @@ public sealed class SqliteSyncQueue : ISyncQueue, IAsyncDisposable
         if (incomingJob.Operation == SyncOperationType.Create || incomingJob.Operation == SyncOperationType.Update)
         {
             var existing = await FindLatestPendingJobAsync(connection, incomingJob.FilePath, cancellationToken);
-            if (existing is not null && (existing.Operation == SyncOperationType.Create || existing.Operation == SyncOperationType.Update))
+            if (existing is not null &&
+                (existing.Operation == SyncOperationType.Create || existing.Operation == SyncOperationType.Update) &&
+                IsFolderPayload(existing.Payload) == IsFolderPayload(incomingJob.Payload))
             {
                 incomingJob.Id = existing.Id;
                 incomingJob.Status = existing.Status;
@@ -275,6 +289,9 @@ public sealed class SqliteSyncQueue : ISyncQueue, IAsyncDisposable
         command.Parameters.AddWithValue("@id", jobId.ToString());
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
+
+    private static bool IsFolderPayload(string? payload)
+        => !string.IsNullOrWhiteSpace(payload) && payload.Contains("\"folder\":true", StringComparison.OrdinalIgnoreCase);
 
     private SQLiteConnection CreateConnection()
     {

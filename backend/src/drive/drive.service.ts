@@ -115,6 +115,16 @@ export class DriveService implements OnModuleInit {
       });
       for (const account of accounts) {
         try {
+          // Retry pending web/local mutations before pulling Drive changes.
+          // This closes the gap where an immediate mirror failed and no later
+          // event would otherwise trigger another push.
+          await this.pushSync(account.profileId);
+        } catch (e) {
+          this.logger.warn(
+            `Drive pending push failed for ${account.profileId}: ${(e as Error).message}`,
+          );
+        }
+        try {
           await this.pollDriveChanges(account.profileId);
         } catch (e) {
           this.logger.warn(
@@ -523,7 +533,7 @@ export class DriveService implements OnModuleInit {
     oauth2.setCredentials({ access_token: token });
     const drive = google.drive({ version: 'v3', auth: oauth2 });
     const folders = await this.prisma.folder.findMany({
-      where: { ownerId: profileId, deletedAt: null },
+      where: { ownerId: profileId },
       orderBy: { relativePath: 'asc' },
     });
     const driveIds = new Map<string, string>();
@@ -531,6 +541,13 @@ export class DriveService implements OnModuleInit {
     let skipped = 0;
     for (const folder of folders) {
       try {
+        if (folder.deletedAt) {
+          if (folder.googleDriveFolderId) {
+            await this.trashFileForProfile(profileId, folder.googleDriveFolderId);
+          }
+          await this.prisma.folder.update({ where: { id: folder.id }, data: { syncStatus: 'SYNCED', lastSyncedAt: new Date() } });
+          continue;
+        }
         const parentId = folder.parentFolderId
           ? driveIds.get(folder.parentFolderId) ?? (await this.prisma.folder.findUnique({ where: { id: folder.parentFolderId }, select: { googleDriveFolderId: true } }))?.googleDriveFolderId ?? rootFolderId
           : rootFolderId;
@@ -574,7 +591,7 @@ export class DriveService implements OnModuleInit {
     oauth2.setCredentials({ access_token: token });
     const drive = google.drive({ version: 'v3', auth: oauth2 });
     const files = await this.prisma.file.findMany({
-      where: { ownerId: profileId, deletedAt: null },
+      where: { ownerId: profileId },
       orderBy: { updatedAt: 'asc' },
     });
     let uploaded = 0;
@@ -582,12 +599,23 @@ export class DriveService implements OnModuleInit {
 
     for (const file of files) {
       try {
+        if (file.deletedAt) {
+          if (file.googleDriveFileId) {
+            await this.trashFileForProfile(profileId, file.googleDriveFileId);
+          }
+          await this.prisma.file.update({ where: { id: file.id }, data: { syncStatus: 'SYNCED', lastSyncedAt: new Date() } });
+          continue;
+        }
+        let existingDriveFileId: string | null = null;
         if (file.googleDriveFileId) {
           try {
             const remote = await drive.files.get({ fileId: file.googleDriveFileId, fields: 'id, trashed, mimeType' });
-            if (!remote.data.trashed && remote.data.mimeType !== DRIVE_FOLDER_MIME) continue;
+            if (!remote.data.trashed && remote.data.mimeType !== DRIVE_FOLDER_MIME) {
+              existingDriveFileId = remote.data.id ?? file.googleDriveFileId;
+              if (file.syncStatus === 'SYNCED') continue;
+            }
           } catch {
-            // Re-upload below when the stored Drive ID is stale or deleted.
+            // Recreate below when the stored Drive ID is stale or deleted.
           }
         }
         const latest = await this.prisma.fileVersion.findFirst({
@@ -602,15 +630,20 @@ export class DriveService implements OnModuleInit {
         const folder = file.folderId
           ? await this.prisma.folder.findUnique({ where: { id: file.folderId } })
           : null;
-        const driveFile = await this.uploadFileForProfile(
-          profileId,
-          { name: file.name, mimeType: file.mimeType, buffer },
-          folder?.googleDriveFolderId,
-          file.relativePath,
-        );
+        const driveFile = existingDriveFileId
+          ? await this.updateFileForProfile(profileId, existingDriveFileId, { name: file.name, mimeType: file.mimeType, buffer })
+          : await this.uploadFileForProfile(
+              profileId,
+              { name: file.name, mimeType: file.mimeType, buffer },
+              folder?.googleDriveFolderId,
+              file.relativePath,
+            );
         if (!driveFile?.id) {
           skipped++;
           continue;
+        }
+        if (folder?.googleDriveFolderId) {
+          await this.moveFileForProfile(profileId, driveFile.id, folder.googleDriveFolderId);
         }
         await this.prisma.file.update({
           where: { id: file.id },

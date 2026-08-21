@@ -335,7 +335,9 @@ export class FolderService {
       parentFolderId?: string | null;
       relativePath?: string;
       visibility?: 'PRIVATE' | 'RESTRICTED' | 'ORGANIZATION' | 'PUBLIC';
-    } = { name, parentFolderId, relativePath };
+      syncStatus?: 'PENDING' | 'SYNCED';
+      lastSyncedAt?: Date | null;
+    } = { name, parentFolderId, relativePath, syncStatus: 'PENDING', lastSyncedAt: null };
     if (dto.visibility) data.visibility = dto.visibility as 'PRIVATE' | 'RESTRICTED' | 'ORGANIZATION' | 'PUBLIC';
     const updated = await this.prisma.folder.update({ where: { id }, data });
     const descendants = await this.prisma.folder.findMany({ where: { ownerId: profileId, relativePath: { startsWith: `${oldPath}/` }, deletedAt: null } });
@@ -344,17 +346,24 @@ export class FolderService {
     }
     const files = await this.prisma.file.findMany({ where: { ownerId: profileId, relativePath: { startsWith: `${oldPath}/` }, deletedAt: null } });
     for (const file of files) await this.prisma.file.update({ where: { id: file.id }, data: { relativePath: `${relativePath}${file.relativePath.slice(oldPath.length)}` } });
+    let driveSynced = false;
     try {
       if (folder.googleDriveFolderId) {
         await this.drive.renameFileForProfile(profileId, folder.googleDriveFolderId, name);
         if (!parentFolderId || parent?.googleDriveFolderId) {
           await this.drive.moveFileForProfile(profileId, folder.googleDriveFolderId, parent?.googleDriveFolderId ?? null);
         }
+        driveSynced = true;
       }
-    } catch (error) { /* Drive retry will reconcile this folder on next sync. */ }
+    } catch (error) {
+      // Keep PENDING so the next Drive reconciliation retries this mutation.
+    }
+    const finalFolder = driveSynced
+      ? await this.prisma.folder.update({ where: { id }, data: { syncStatus: 'SYNCED', lastSyncedAt: new Date() } })
+      : updated;
     await this.audit.log(profileId, 'UPDATE', 'FOLDER', id, { changes: data });
-    await this.emitRemoteChange(profileId, { operation: name !== folder.name ? SyncOperation.RENAME : SyncOperation.MOVE, folderId: id, oldRelativePath: oldPath, relativePath: updated.relativePath, name: updated.name });
-    return updated;
+    await this.emitRemoteChange(profileId, { operation: name !== folder.name ? SyncOperation.RENAME : SyncOperation.MOVE, folderId: id, oldRelativePath: oldPath, relativePath: finalFolder.relativePath, name: finalFolder.name });
+    return finalFolder;
   }
 
   async copy(profileId: string, id: string) {
@@ -395,9 +404,9 @@ export class FolderService {
     const deletedAt = new Date();
     const descendants = await this.prisma.folder.findMany({ where: { ownerId: profileId, relativePath: { startsWith: `${folder.relativePath}/` }, deletedAt: null } });
     const files = await this.prisma.file.findMany({ where: { ownerId: profileId, relativePath: { startsWith: `${folder.relativePath}/` }, deletedAt: null } });
-    await this.prisma.folder.update({ where: { id }, data: { deletedAt } });
-    await this.prisma.folder.updateMany({ where: { id: { in: descendants.map((child) => child.id) } }, data: { deletedAt } });
-    await this.prisma.file.updateMany({ where: { id: { in: files.map((file) => file.id) } }, data: { deletedAt } });
+    await this.prisma.folder.update({ where: { id }, data: { deletedAt, syncStatus: 'PENDING', lastSyncedAt: null } });
+    await this.prisma.folder.updateMany({ where: { id: { in: descendants.map((child) => child.id) } }, data: { deletedAt, syncStatus: 'PENDING', lastSyncedAt: null } });
+    await this.prisma.file.updateMany({ where: { id: { in: files.map((file) => file.id) } }, data: { deletedAt, syncStatus: 'PENDING', lastSyncedAt: null } });
     const deleted = await this.prisma.folder.findUnique({ where: { id } });
     if (folder.googleDriveFolderId) {
       try { await this.drive.trashFileForProfile(profileId, folder.googleDriveFolderId); } catch (error) { /* retry through Drive reconciliation */ }

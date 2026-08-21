@@ -125,16 +125,36 @@ export class SyncStatusService {
   }
 
   async getRemoteChanges(profileId: string, since?: string, limit = 200) {
-    const parsedSince = since ? new Date(since) : new Date(0);
-    const safeSince = Number.isNaN(parsedSince.getTime()) ? new Date(0) : parsedSince;
-    const cursor = new Date();
+    const cursorLimit = new Date();
+    let safeSince = new Date(0);
+    let sinceId: string | null = null;
+    if (since) {
+      try {
+        const parsed = JSON.parse(since) as { createdAt?: string; id?: string };
+        if (parsed.createdAt) safeSince = new Date(parsed.createdAt);
+        sinceId = parsed.id ?? null;
+      } catch {
+        safeSince = new Date(since);
+      }
+    }
+    if (Number.isNaN(safeSince.getTime())) safeSince = new Date(0);
+
     const changes = await this.prisma.remoteChange.findMany({
-      where: { profileId, createdAt: { gt: safeSince, lte: cursor } },
-      orderBy: { createdAt: 'asc' },
+      where: {
+        profileId,
+        createdAt: { lte: cursorLimit },
+        OR: sinceId
+          ? [{ createdAt: { gt: safeSince } }, { createdAt: safeSince, id: { gt: sinceId } }]
+          : [{ createdAt: { gt: safeSince } }],
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: Math.min(500, Math.max(1, limit)),
     });
+    const last = changes[changes.length - 1];
     return {
-      cursor: cursor.toISOString(),
+      // The cursor points to the last returned row, not the query timestamp.
+      // Therefore a batch larger than the client page size cannot be skipped.
+      cursor: last ? JSON.stringify({ createdAt: last.createdAt.toISOString(), id: last.id }) : JSON.stringify({ createdAt: cursorLimit.toISOString() }),
       changes: changes.map((change) => ({ ...change, size: change.size == null ? null : Number(change.size) })),
     };
   }

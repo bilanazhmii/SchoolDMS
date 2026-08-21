@@ -218,19 +218,24 @@ export class FileService {
           },
         });
       });
+      let driveSynced = false;
       try {
         if (existing.googleDriveFileId) {
-          await this.drive.updateFileForProfile(profileId, existing.googleDriveFileId, {
+          await this.drive.updateFileForProfile(existing.ownerId, existing.googleDriveFileId, {
             name: sanitizedFilename,
             mimeType: fileMeta.mimeType,
             buffer: fileMeta.buffer as Buffer,
           });
+          driveSynced = true;
         }
       } catch (error) {
         this.logger.warn(`Google Drive update failed for ${existing.id}`, error as Error);
       }
-      await this.emitRemoteChange(profileId, { operation: SyncOperation.UPLOAD, fileId: updated.id, folderId: updated.folderId, relativePath: updated.relativePath, name: updated.name, mimeType: updated.mimeType, size: updated.size, sha256: updated.sha256 });
-      return this.serializeFile(updated);
+      const finalFile = driveSynced
+        ? await this.prisma.file.update({ where: { id: updated.id }, data: { syncStatus: 'SYNCED', lastSyncedAt: new Date() } })
+        : updated;
+      await this.emitRemoteChange(profileId, { operation: SyncOperation.UPLOAD, fileId: finalFile.id, folderId: finalFile.folderId, relativePath: finalFile.relativePath, name: finalFile.name, mimeType: finalFile.mimeType, size: finalFile.size, sha256: finalFile.sha256 });
+      return this.serializeFile(finalFile);
     }
 
     // Create file record and initial version with storage
@@ -369,7 +374,7 @@ export class FileService {
 
     const deleted = await this.prisma.file.update({
       where: { id },
-      data: { deletedAt: new Date() },
+      data: { deletedAt: new Date(), syncStatus: 'PENDING', lastSyncedAt: null },
     });
     const activeTrash = await this.prisma.trash.findFirst({ where: { profileId, fileId: id, restoredAt: null } });
     if (!activeTrash) await this.prisma.trash.create({ data: { profileId, fileId: id, deletedAt: new Date() } });
@@ -404,7 +409,7 @@ export class FileService {
     // a schema mismatch, or a Drive outage must not roll back file deletion.
     await this.prisma.file.updateMany({
       where: { id: { in: files.map((file) => file.id) }, ownerId: profileId, deletedAt: null },
-      data: { deletedAt },
+      data: { deletedAt, syncStatus: 'PENDING', lastSyncedAt: null },
     });
 
     // Trash is best-effort and sequential to avoid another burst of database
@@ -500,8 +505,9 @@ export class FileService {
     const relativePath = folder ? `${folder.relativePath}/${name}` : `/${name}`;
     const moved = await this.prisma.file.update({
       where: { id: file.id },
-      data: { name, folderId: folderId ?? null, relativePath },
+      data: { name, folderId: folderId ?? null, relativePath, syncStatus: 'PENDING', lastSyncedAt: null },
     });
+    let driveSynced = false;
     try {
       if (file.googleDriveFileId) {
         await this.drive.moveFileForProfile(profileId, file.googleDriveFileId, folder?.googleDriveFolderId ?? null);
@@ -512,12 +518,16 @@ export class FileService {
             await this.drive.updateFileForProfile(profileId, file.googleDriveFileId, { name, mimeType: file.mimeType, buffer });
           }
         }
+        driveSynced = true;
       }
     } catch (error) {
       this.logger.warn(`Google Drive rename/move failed for ${file.id}`, error as Error);
     }
-    await this.emitRemoteChange(profileId, { operation: name !== file.name ? SyncOperation.RENAME : SyncOperation.MOVE, fileId: file.id, folderId: moved.folderId, oldRelativePath: file.relativePath, relativePath: moved.relativePath, name: moved.name, mimeType: moved.mimeType, size: moved.size, sha256: moved.sha256 });
-    return this.serializeFile(moved);
+    const finalMoved = driveSynced
+      ? await this.prisma.file.update({ where: { id: moved.id }, data: { syncStatus: 'SYNCED', lastSyncedAt: new Date() } })
+      : moved;
+    await this.emitRemoteChange(profileId, { operation: name !== file.name ? SyncOperation.RENAME : SyncOperation.MOVE, fileId: file.id, folderId: finalMoved.folderId, oldRelativePath: file.relativePath, relativePath: finalMoved.relativePath, name: finalMoved.name, mimeType: finalMoved.mimeType, size: finalMoved.size, sha256: finalMoved.sha256 });
+    return this.serializeFile(finalMoved);
   }
 
   async rename(profileId: string, id: string, name: string) {
@@ -526,13 +536,17 @@ export class FileService {
     const file = await this.prisma.file.findUnique({ where: { id } });
     if (!file || file.ownerId !== profileId || file.deletedAt) throw new NotFoundException('File not found');
     const relativePath = file.folderId ? `${(await this.prisma.folder.findUnique({ where: { id: file.folderId } }))?.relativePath ?? ''}/${cleanName}` : `/${cleanName}`;
-    const renamed = await this.prisma.file.update({ where: { id }, data: { name: cleanName, relativePath } });
+    const renamed = await this.prisma.file.update({ where: { id }, data: { name: cleanName, relativePath, syncStatus: 'PENDING', lastSyncedAt: null } });
+    let driveSynced = false;
     if (file.googleDriveFileId) {
-      try { await this.drive.renameFileForProfile(profileId, file.googleDriveFileId, cleanName); } catch (error) { this.logger.warn(`Google Drive rename failed for ${id}`, error as Error); }
+      try { await this.drive.renameFileForProfile(profileId, file.googleDriveFileId, cleanName); driveSynced = true; } catch (error) { this.logger.warn(`Google Drive rename failed for ${id}`, error as Error); }
     }
+    const finalRenamed = driveSynced
+      ? await this.prisma.file.update({ where: { id }, data: { syncStatus: 'SYNCED', lastSyncedAt: new Date() } })
+      : renamed;
     await this.audit.log(profileId, 'UPDATE', 'FILE', id, { action: 'rename', name: cleanName });
-    await this.emitRemoteChange(profileId, { operation: SyncOperation.RENAME, fileId: id, folderId: renamed.folderId, oldRelativePath: file.relativePath, relativePath: renamed.relativePath, name: renamed.name, mimeType: renamed.mimeType, size: renamed.size, sha256: renamed.sha256 });
-    return this.serializeFile(renamed);
+    await this.emitRemoteChange(profileId, { operation: SyncOperation.RENAME, fileId: id, folderId: finalRenamed.folderId, oldRelativePath: file.relativePath, relativePath: finalRenamed.relativePath, name: finalRenamed.name, mimeType: finalRenamed.mimeType, size: finalRenamed.size, sha256: finalRenamed.sha256 });
+    return this.serializeFile(finalRenamed);
   }
 
   async move(
@@ -558,12 +572,13 @@ export class FileService {
 
     const moved = await this.prisma.file.update({
       where: { id },
-      data: { folderId: toFolderId ?? null, relativePath },
+      data: { folderId: toFolderId ?? null, relativePath, syncStatus: 'PENDING', lastSyncedAt: null },
     });
     await this.audit.log(profileId, 'UPDATE', 'FILE', id, {
       action: 'move',
       toFolderId: toFolderId ?? null,
     });
+    let driveSynced = false;
     try {
       if (file.googleDriveFileId) {
         const destination = toFolderId
@@ -574,12 +589,16 @@ export class FileService {
           file.googleDriveFileId,
           destination?.googleDriveFolderId ?? null,
         );
+        driveSynced = true;
       }
     } catch (error) {
       this.logger.warn(`Google Drive move failed for ${id}`, error as Error);
     }
-    await this.emitRemoteChange(profileId, { operation: SyncOperation.MOVE, fileId: id, folderId: moved.folderId, oldRelativePath: file.relativePath, relativePath: moved.relativePath, name: moved.name, mimeType: moved.mimeType, size: moved.size, sha256: moved.sha256 });
-    return this.serializeFile(moved);
+    const finalMoved = driveSynced
+      ? await this.prisma.file.update({ where: { id }, data: { syncStatus: 'SYNCED', lastSyncedAt: new Date() } })
+      : moved;
+    await this.emitRemoteChange(profileId, { operation: SyncOperation.MOVE, fileId: id, folderId: finalMoved.folderId, oldRelativePath: file.relativePath, relativePath: finalMoved.relativePath, name: finalMoved.name, mimeType: finalMoved.mimeType, size: finalMoved.size, sha256: finalMoved.sha256 });
+    return this.serializeFile(finalMoved);
   }
 
   async copy(

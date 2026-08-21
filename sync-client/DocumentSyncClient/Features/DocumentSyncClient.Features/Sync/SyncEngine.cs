@@ -159,29 +159,23 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
             return;
         }
 
-        var files = Directory.EnumerateFiles(rootPath, "*", SearchOption.AllDirectories);
+        var files = Directory.EnumerateFiles(rootPath, "*", SearchOption.AllDirectories).ToArray();
         var directories = Directory.EnumerateDirectories(rootPath, "*", SearchOption.AllDirectories).ToArray();
         var folderPaths = new[] { rootPath }.Concat(directories).ToArray();
         var queued = 0;
-        var rootName = Path.GetFileName(rootPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        var session = await GetValidSessionAsync(cancellationToken);
-        if (session is not null)
+
+        // Folder creation is queued as a durable job. A one-shot HTTP call here
+        // could be lost during a transient network/API failure, leaving files
+        // only partially synchronized.
+        foreach (var directory in folderPaths)
         {
-            var settings = await _settingsService.LoadAsync(cancellationToken);
-            var baseUrl = (string.IsNullOrWhiteSpace(settings.ServerUrl) ? DefaultServerUrl : settings.ServerUrl).TrimEnd('/');
-            using var client = CreateHttpClient(baseUrl, session.AccessToken);
-            foreach (var directory in folderPaths)
-            {
-                var inside = string.Equals(directory, rootPath, StringComparison.OrdinalIgnoreCase) ? string.Empty : Path.GetRelativePath(rootPath, directory).Replace('\\', '/');
-                var relative = string.IsNullOrWhiteSpace(rootName) ? inside : string.IsNullOrWhiteSpace(inside) ? rootName : $"{rootName}/{inside}";
-                using var response = await client.PostAsJsonAsync("/folders/by-path", new { relativePath = relative }, cancellationToken);
-                if (!response.IsSuccessStatusCode) _logger.LogWarning("Folder sync failed ({StatusCode}) for {Path}", response.StatusCode, relative);
-            }
+            await QueueFolderChangeAsync(directory, SyncOperationType.Create, cancellationToken: cancellationToken);
         }
+
         foreach (var file in files)
         {
-            var inside = Path.GetRelativePath(rootPath, file).Replace('\\', '/');
-            var relative = string.IsNullOrWhiteSpace(rootName) ? inside : $"{rootName}/{inside}";
+            var settings = await _settingsService.LoadAsync(cancellationToken);
+            var relative = BuildRelativePath(file, settings);
             var job = new SyncJob
             {
                 FilePath = file,
@@ -193,7 +187,7 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
             queued++;
         }
 
-        _logger.LogInformation("Initial folder sync queued {Count} files and discovered {FolderCount} folders from {Root}", queued, folderPaths.Length, rootPath);
+        _logger.LogInformation("Initial folder sync queued {Count} files and {FolderCount} folder jobs from {Root}", queued, folderPaths.Length, rootPath);
     }
 
     /// <summary>
