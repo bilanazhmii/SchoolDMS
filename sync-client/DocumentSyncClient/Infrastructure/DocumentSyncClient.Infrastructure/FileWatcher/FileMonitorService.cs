@@ -110,6 +110,17 @@ public sealed class FileMonitorService : IFileMonitorService
             return;
         }
 
+        if (Directory.Exists(path))
+        {
+            if (operation == SyncOperationType.Rename && payload is not null)
+                await _syncEngine.QueueFolderChangeAsync(path, operation, payload);
+            else if (operation == SyncOperationType.Delete)
+                await _syncEngine.QueueFolderChangeAsync(path, operation);
+            else
+                await _syncEngine.SyncFolderAsync(path);
+            return;
+        }
+
         if (operation != SyncOperationType.Delete && !await IsAccessibleAsync(path))
         {
             _logger.LogInformation("Skipping pending file event for inaccessible path {Path}", path);
@@ -170,25 +181,32 @@ public sealed class FileMonitorService : IFileMonitorService
 
     private static async Task<bool> IsAccessibleAsync(string path)
     {
-        if (!File.Exists(path) && !Directory.Exists(path))
-        {
-            return false;
-        }
+        if (Directory.Exists(path)) return true;
+        if (!File.Exists(path)) return false;
 
-        try
+        for (var attempt = 0; attempt < 20; attempt++)
         {
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
-            await stream.DisposeAsync();
-            return true;
+            try
+            {
+                long firstLength;
+                long secondLength;
+                await using (var first = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                {
+                    firstLength = first.Length;
+                }
+                await Task.Delay(150);
+                if (!File.Exists(path)) return false;
+                await using (var second = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                {
+                    secondLength = second.Length;
+                }
+                if (firstLength == secondLength) return true;
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            await Task.Delay(250);
         }
-        catch (IOException)
-        {
-            return false;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return false;
-        }
+        return File.Exists(path);
     }
 
     /// <inheritdoc />

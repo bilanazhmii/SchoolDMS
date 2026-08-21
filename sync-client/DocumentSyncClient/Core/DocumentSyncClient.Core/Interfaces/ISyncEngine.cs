@@ -23,6 +23,11 @@ public interface ISyncEngine
     Task QueueFileChangeAsync(string path, SyncOperationType operation, string? payload = null, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Queues a directory change with an explicit folder marker so deleted and renamed directories are not mistaken for files.
+    /// </summary>
+    Task QueueFolderChangeAsync(string path, SyncOperationType operation, string? oldPath = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Enqueues every file under a folder for upload (initial folder sync).
     /// </summary>
     Task SyncFolderAsync(string rootPath, CancellationToken cancellationToken = default);

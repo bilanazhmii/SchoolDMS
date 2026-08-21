@@ -98,6 +98,20 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
     }
 
     /// <inheritdoc />
+    public async Task QueueFolderChangeAsync(string path, SyncOperationType operation, string? oldPath = null, CancellationToken cancellationToken = default)
+    {
+        var settings = await _settingsService.LoadAsync(cancellationToken);
+        var job = new SyncJob
+        {
+            FilePath = path,
+            RelativePath = BuildRelativePath(path, settings),
+            Operation = operation,
+            Payload = JsonSerializer.Serialize(new { folder = true, oldRelativePath = oldPath is null ? null : BuildRelativePath(oldPath, settings) }),
+            NextAttemptAt = DateTimeOffset.UtcNow,
+        };
+        await _queue.EnqueueAsync(job, cancellationToken);
+    }
+
     public async Task QueueFileChangeAsync(string path, SyncOperationType operation, string? payload = null, CancellationToken cancellationToken = default)
     {
         var settings = await _settingsService.LoadAsync(cancellationToken);
@@ -146,8 +160,24 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
         }
 
         var files = Directory.EnumerateFiles(rootPath, "*", SearchOption.AllDirectories);
+        var directories = Directory.EnumerateDirectories(rootPath, "*", SearchOption.AllDirectories).ToArray();
+        var folderPaths = new[] { rootPath }.Concat(directories).ToArray();
         var queued = 0;
         var rootName = Path.GetFileName(rootPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        var session = await GetValidSessionAsync(cancellationToken);
+        if (session is not null)
+        {
+            var settings = await _settingsService.LoadAsync(cancellationToken);
+            var baseUrl = (string.IsNullOrWhiteSpace(settings.ServerUrl) ? DefaultServerUrl : settings.ServerUrl).TrimEnd('/');
+            using var client = CreateHttpClient(baseUrl, session.AccessToken);
+            foreach (var directory in folderPaths)
+            {
+                var inside = string.Equals(directory, rootPath, StringComparison.OrdinalIgnoreCase) ? string.Empty : Path.GetRelativePath(rootPath, directory).Replace('\\', '/');
+                var relative = string.IsNullOrWhiteSpace(rootName) ? inside : string.IsNullOrWhiteSpace(inside) ? rootName : $"{rootName}/{inside}";
+                using var response = await client.PostAsJsonAsync("/folders/by-path", new { relativePath = relative }, cancellationToken);
+                if (!response.IsSuccessStatusCode) _logger.LogWarning("Folder sync failed ({StatusCode}) for {Path}", response.StatusCode, relative);
+            }
+        }
         foreach (var file in files)
         {
             var inside = Path.GetRelativePath(rootPath, file).Replace('\\', '/');
@@ -163,20 +193,40 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
             queued++;
         }
 
-        _logger.LogInformation("Initial folder sync queued {Count} files from {Root}", queued, rootPath);
+        _logger.LogInformation("Initial folder sync queued {Count} files and discovered {FolderCount} folders from {Root}", queued, folderPaths.Length, rootPath);
     }
 
     /// <summary>
     /// Registers this device with the backend (heartbeat) so the web dashboard
     /// can show the desktop client as online. No-op when not signed in.
     /// </summary>
-    public async Task RegisterDeviceAsync(CancellationToken cancellationToken = default)
+    private async Task<AuthSession?> GetValidSessionAsync(CancellationToken cancellationToken)
     {
         var session = await _authStore.LoadAsync(cancellationToken);
-        if (session is null || string.IsNullOrWhiteSpace(session.AccessToken))
+        if (session is null || string.IsNullOrWhiteSpace(session.AccessToken)) return null;
+        if (session.ExpiresAt > DateTimeOffset.UtcNow.AddMinutes(2)) return session;
+
+        var refreshed = await _authService.RefreshTokenAsync(session.RefreshToken, cancellationToken);
+        if (refreshed is null)
         {
-            return;
+            await _authStore.ClearAsync(cancellationToken);
+            return null;
         }
+        var updated = new AuthSession
+        {
+            AccessToken = refreshed.AccessToken,
+            RefreshToken = refreshed.RefreshToken,
+            Email = refreshed.Email,
+            ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(refreshed.ExpiresIn),
+        };
+        await _authStore.SaveAsync(updated, cancellationToken);
+        return updated;
+    }
+
+    public async Task RegisterDeviceAsync(CancellationToken cancellationToken = default)
+    {
+        var session = await GetValidSessionAsync(cancellationToken);
+        if (session is null) return;
 
         var settings = await _settingsService.LoadAsync(cancellationToken);
         if (string.IsNullOrWhiteSpace(settings.DeviceId))
@@ -331,32 +381,16 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
             ? DefaultServerUrl
             : settings.ServerUrl.TrimEnd('/');
 
-        var session = await _authStore.LoadAsync(cancellationToken);
-        if (session is null || string.IsNullOrWhiteSpace(session.AccessToken))
-        {
-            throw new InvalidOperationException("Not authenticated. Sign in to synchronize files.");
-        }
-
-        // Refresh the token early if it is close to expiry.
-        if (session.ExpiresAt <= DateTimeOffset.UtcNow.AddMinutes(2))
-        {
-            var refreshed = await _authService.RefreshTokenAsync(session.RefreshToken, cancellationToken);
-            if (refreshed is null)
-            {
-                throw new InvalidOperationException("Session expired and could not be refreshed.");
-            }
-
-            session = new AuthSession
-            {
-                AccessToken = refreshed.AccessToken,
-                RefreshToken = refreshed.RefreshToken,
-                Email = refreshed.Email,
-                ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(refreshed.ExpiresIn)
-            };
-            await _authStore.SaveAsync(session, cancellationToken);
-        }
+        var session = await GetValidSessionAsync(cancellationToken);
+        if (session is null) throw new InvalidOperationException("Not authenticated. Sign in to synchronize files.");
 
         using var client = CreateHttpClient(baseUrl, session.AccessToken);
+
+        if (IsFolderPayload(job.Payload))
+        {
+            await ProcessFolderJobAsync(client, job, cancellationToken);
+            return;
+        }
 
         switch (job.Operation)
         {
@@ -384,6 +418,41 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
         var client = new HttpClient { BaseAddress = new Uri(baseUrl), Timeout = TimeSpan.FromSeconds(120) };
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         return client;
+    }
+
+    private static bool IsFolderPayload(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload)) return false;
+        try { using var doc = JsonDocument.Parse(payload); return doc.RootElement.TryGetProperty("folder", out var folder) && folder.GetBoolean(); }
+        catch (JsonException) { return false; }
+    }
+
+    private static string? ExtractOldRelativePath(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload)) return null;
+        try { using var doc = JsonDocument.Parse(payload); return doc.RootElement.TryGetProperty("oldRelativePath", out var oldPath) ? oldPath.GetString() : null; }
+        catch (JsonException) { return null; }
+    }
+
+    private async Task ProcessFolderJobAsync(HttpClient client, SyncJob job, CancellationToken cancellationToken)
+    {
+        if (job.Operation is SyncOperationType.Create or SyncOperationType.Update)
+        {
+            using var response = await client.PostAsJsonAsync("/folders/by-path", new { relativePath = job.RelativePath }, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            return;
+        }
+        if (job.Operation == SyncOperationType.Delete)
+        {
+            var path = Uri.EscapeDataString(job.RelativePath.Replace('\\', '/'));
+            using var response = await client.DeleteAsync($"/folders/by-path?relativePath={path}", cancellationToken);
+            response.EnsureSuccessStatusCode();
+            return;
+        }
+        var oldPath = ExtractOldRelativePath(job.Payload);
+        if (string.IsNullOrWhiteSpace(oldPath)) throw new InvalidOperationException("Folder rename/move is missing its old path.");
+        using var moveResponse = await client.PostAsJsonAsync("/folders/by-path/move", new { oldRelativePath = oldPath, newRelativePath = job.RelativePath }, cancellationToken);
+        moveResponse.EnsureSuccessStatusCode();
     }
 
     private async Task UploadFileAsync(HttpClient client, SyncJob job, CancellationToken cancellationToken)
@@ -508,8 +577,8 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
 
         private async Task PullRemoteChangesAsync(CancellationToken cancellationToken)
     {
-        var session = await _authStore.LoadAsync(cancellationToken);
-        if (session is null || string.IsNullOrWhiteSpace(session.AccessToken)) return;
+        var session = await GetValidSessionAsync(cancellationToken);
+        if (session is null) return;
         var settings = await _settingsService.LoadAsync(cancellationToken);
         var baseUrl = (string.IsNullOrWhiteSpace(settings.ServerUrl) ? DefaultServerUrl : settings.ServerUrl).TrimEnd('/');
         var query = string.IsNullOrWhiteSpace(settings.RemoteSyncCursor)

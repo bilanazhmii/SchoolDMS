@@ -45,6 +45,24 @@ export class FolderController {
     return { success: true, data: await this.service.rootFolders(user.id) };
   }
 
+  @Post('by-path')
+  @ApiOperation({ summary: 'Ensure a synchronized folder path exists under My Files' })
+  async ensurePath(@CurrentUser() user: AuthenticatedProfile, @Body() body: { relativePath?: string }) {
+    return { success: true, data: await this.service.ensurePath(user.id, body?.relativePath ?? '') };
+  }
+
+  @Post('by-path/move')
+  @ApiOperation({ summary: 'Rename or move a folder by synchronized relative path' })
+  async moveByPath(@CurrentUser() user: AuthenticatedProfile, @Body() body: { oldRelativePath?: string; newRelativePath?: string }) {
+    return { success: true, data: await this.service.moveByRelativePath(user.id, body?.oldRelativePath ?? '', body?.newRelativePath ?? '') };
+  }
+
+  @Delete('by-path')
+  @ApiOperation({ summary: 'Soft delete a folder by synchronized relative path' })
+  async removeByPath(@CurrentUser() user: AuthenticatedProfile, @Query('relativePath') relativePath?: string) {
+    return { success: true, data: await this.service.softDeleteByRelativePath(user.id, relativePath ?? '') };
+  }
+
   @Get(':id/contents')
   @ApiOperation({ summary: 'Get folder contents: folders and files' })
   async contents(

@@ -173,6 +173,50 @@ export class FolderService {
     return { folderName: core.name, folderId: core.id, foldersMoved, moved };
   }
 
+  async ensurePath(profileId: string, relativePath: string) {
+    const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    const parts = normalized.split('/').filter(Boolean);
+    if (parts[0] === DEFAULT_CORE_FOLDER_NAME) parts.shift();
+    let parent = await this.ensureDefaultCoreFolder(profileId);
+    for (const name of parts) {
+      const existing = await this.prisma.folder.findFirst({ where: { ownerId: profileId, parentFolderId: parent.id, name, deletedAt: null } });
+      if (existing) { parent = existing; continue; }
+      const created = await this.prisma.folder.create({ data: { name, ownerId: profileId, parentFolderId: parent.id, relativePath: `${parent.relativePath}/${name}`, visibility: 'PRIVATE' } });
+      try {
+        const driveId = await this.drive.createFolderForProfile(profileId, name, parent.googleDriveFolderId ?? null);
+        if (driveId) parent = await this.prisma.folder.update({ where: { id: created.id }, data: { googleDriveFolderId: driveId, syncStatus: 'SYNCED', lastSyncedAt: new Date() } });
+        else parent = created;
+      } catch { parent = created; }
+      await this.emitRemoteChange(profileId, { operation: SyncOperation.UPLOAD, folderId: parent.id, relativePath: parent.relativePath, name: parent.name });
+    }
+    return parent;
+  }
+
+  private synchronizedPathVariants(rawPath: string) {
+    const normalized = `/${rawPath.replace(/\\/g, '/').replace(/^\/+/, '')}`;
+    const variants = [normalized];
+    if (!normalized.toLowerCase().startsWith(`/${DEFAULT_CORE_FOLDER_NAME.toLowerCase()}/`)) variants.push(`/${DEFAULT_CORE_FOLDER_NAME}${normalized}`);
+    return [...new Set(variants)];
+  }
+
+  async softDeleteByRelativePath(profileId: string, relativePath: string) {
+    const variants = this.synchronizedPathVariants(relativePath);
+    const folder = await this.prisma.folder.findFirst({ where: { ownerId: profileId, relativePath: { in: variants }, deletedAt: null } });
+    if (!folder) return { missing: true, relativePath: variants[0] };
+    return this.softDelete(profileId, folder.id);
+  }
+
+  async moveByRelativePath(profileId: string, oldRelativePath: string, newRelativePath: string) {
+    const oldVariants = this.synchronizedPathVariants(oldRelativePath);
+    const folder = await this.prisma.folder.findFirst({ where: { ownerId: profileId, relativePath: { in: oldVariants }, deletedAt: null } });
+    if (!folder) return { missing: true, relativePath: oldVariants[0] };
+    const parts = newRelativePath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+    const name = parts.pop() ?? folder.name;
+    const parent = await this.ensurePath(profileId, parts.join('/'));
+    if (parent.id === folder.id || parent.relativePath.startsWith(`${folder.relativePath}/`)) throw new BadRequestException('Cannot move a folder inside itself');
+    return this.update(profileId, folder.id, { name, parentFolderId: parent.id } as UpdateFolderDto);
+  }
+
   async getContents(
     profileId: string,
     folderId?: string,
