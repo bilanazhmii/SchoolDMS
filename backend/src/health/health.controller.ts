@@ -18,7 +18,7 @@ export class HealthController {
       status: 'ok',
       database: remoteChangeReady ? 'connected' : 'migration-required',
       remoteChangeReady,
-      version: process.env.APP_VERSION ?? '2026-08-20-three-way-sync-v5-background',
+      version: process.env.APP_VERSION ?? '2026-08-21-sync-stability-v6',
       timestamp: new Date().toISOString(),
     };
   }
