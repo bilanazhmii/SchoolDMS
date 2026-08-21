@@ -162,8 +162,19 @@ const ExplorerInner: React.FC = () => {
         )}
       </main>
 
+            {/* Detail panels stay on the right on wide screens and move below the content on smaller screens. */}
+      <section className="col-span-12 border-t border-border bg-card lg:hidden">
+        <div className="grid gap-4 p-4 md:grid-cols-2">
+          <div className="rounded-lg border border-border bg-card p-4"><FilePreviewPanel file={previewFile} /></div>
+          <div className="rounded-lg border border-border bg-card p-4"><MetadataPanel fileId={previewFile?.id} /></div>
+          <div className="rounded-lg border border-border bg-card p-4"><VersionHistoryPanel fileId={previewFile?.id} /></div>
+          <div className="rounded-lg border border-border bg-card p-4"><QRPanel fileUrl={shareUrl} /></div>
+        </div>
+      </section>
+
       {/* Right preview/metadata panels */}
       <aside className="hidden lg:block lg:col-span-2 xl:col-span-3 border-l border-border bg-card">
+
         <div className="p-4 space-y-4 overflow-y-auto">
           <div className="rounded-lg border border-border bg-card p-4">
             <FilePreviewPanel file={previewFile} />

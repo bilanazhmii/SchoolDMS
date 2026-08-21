@@ -10,6 +10,7 @@ namespace DocumentSyncClient.Infrastructure.Authentication;
 public sealed class FileAuthStore : IAuthenticationStore
 {
     private readonly string _filePath;
+    private readonly SemaphoreSlim _gate = new(1, 1);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="FileAuthStore"/> class.
@@ -24,35 +25,55 @@ public sealed class FileAuthStore : IAuthenticationStore
     /// <inheritdoc />
     public async Task<AuthSession?> LoadAsync(CancellationToken cancellationToken = default)
     {
-        if (!File.Exists(_filePath))
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            if (!File.Exists(_filePath)) return null;
+            var json = await File.ReadAllTextAsync(_filePath, cancellationToken);
+            if (string.IsNullOrWhiteSpace(json)) return null;
+            return JsonSerializer.Deserialize<AuthSession>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+        catch (JsonException)
         {
             return null;
         }
-
-        var json = await File.ReadAllTextAsync(_filePath, cancellationToken);
-        if (string.IsNullOrWhiteSpace(json))
+        finally
         {
-            return null;
+            _gate.Release();
         }
-
-        return JsonSerializer.Deserialize<AuthSession>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
     }
 
     /// <inheritdoc />
     public async Task SaveAsync(AuthSession session, CancellationToken cancellationToken = default)
     {
-        var json = JsonSerializer.Serialize(session, new JsonSerializerOptions { WriteIndented = true });
-        await File.WriteAllTextAsync(_filePath, json, cancellationToken);
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var json = JsonSerializer.Serialize(session, new JsonSerializerOptions { WriteIndented = true });
+            var tempPath = _filePath + ".tmp";
+            await File.WriteAllTextAsync(tempPath, json, cancellationToken);
+            File.Move(tempPath, _filePath, true);
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     /// <inheritdoc />
-    public Task ClearAsync(CancellationToken cancellationToken = default)
+    public async Task ClearAsync(CancellationToken cancellationToken = default)
     {
-        if (File.Exists(_filePath))
+        await _gate.WaitAsync(cancellationToken);
+        try
         {
-            File.Delete(_filePath);
+            if (File.Exists(_filePath)) File.Delete(_filePath);
+            var tempPath = _filePath + ".tmp";
+            if (File.Exists(tempPath)) File.Delete(tempPath);
         }
-
-        return Task.CompletedTask;
+        finally
+        {
+            _gate.Release();
+        }
     }
+
 }

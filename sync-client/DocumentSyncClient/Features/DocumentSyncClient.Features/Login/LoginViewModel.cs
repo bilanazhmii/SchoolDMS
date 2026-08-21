@@ -58,12 +58,69 @@ public sealed class LoginViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(LastSyncAt));
             OnPropertyChanged(nameof(StatusLine));
         };
-        _ = LoadSettingsAsync();
+
+    }
+
+    /// <summary>
+    /// Loads persisted settings and resumes a remembered session when enabled.
+    /// </summary>
+    public async Task InitializeAsync()
+    {
+        await LoadSettingsAsync();
+        if (!RememberLogin)
+        {
+            Status = "Ready. Sign in to start synchronization.";
+            return;
+        }
+
+        var session = await _authenticationStore.LoadAsync();
+        if (session is null || string.IsNullOrWhiteSpace(session.RefreshToken))
+        {
+            Status = "Remembered account is unavailable. Please sign in again.";
+            return;
+        }
+
+        try
+        {
+            if (session.ExpiresAt <= DateTimeOffset.UtcNow.AddMinutes(2))
+            {
+                var refreshed = await _authenticationService.RefreshTokenAsync(session.RefreshToken);
+                if (refreshed is null) throw new InvalidOperationException("The remembered session could not be refreshed.");
+                session = new Core.Models.AuthSession
+                {
+                    AccessToken = refreshed.AccessToken,
+                    RefreshToken = refreshed.RefreshToken,
+                    Email = refreshed.Email,
+                    ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(refreshed.ExpiresIn),
+                };
+                await _authenticationStore.SaveAsync(session);
+            }
+
+            Email = session.Email;
+            IsSignedIn = true;
+            ConnectedEmail = session.Email;
+            OnPropertyChanged(nameof(IsSignedIn));
+            OnPropertyChanged(nameof(ConnectedEmail));
+            OnPropertyChanged(nameof(StatusLine));
+            await StartBackgroundSyncAsync();
+            Status = "Remembered account restored. Synchronization is running in the background.";
+        }
+        catch (Exception ex)
+        {
+            await _authenticationStore.ClearAsync();
+            IsSignedIn = false;
+            ConnectedEmail = string.Empty;
+            OnPropertyChanged(nameof(IsSignedIn));
+            OnPropertyChanged(nameof(ConnectedEmail));
+            OnPropertyChanged(nameof(StatusLine));
+            Status = $"Remembered account needs sign-in again: {ex.Message}";
+        }
     }
 
     /// <summary>
     /// Gets whether a user is currently signed in (live indicator).
     /// </summary>
+
     public bool IsSignedIn { get; private set; }
 
     /// <summary>
@@ -231,23 +288,8 @@ public sealed class LoginViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(ConnectedEmail));
             OnPropertyChanged(nameof(StatusLine));
 
-            await _syncEngine.RegisterDeviceAsync();
+            await StartBackgroundSyncAsync();
 
-            var folders = AllSyncFolders.Where(Directory.Exists).ToList();
-            if (folders.Count > 0)
-            {
-                foreach (var folder in folders)
-                {
-                    Directory.CreateDirectory(folder);
-                    await _syncEngine.SyncFolderAsync(folder);
-                    await _fileMonitorService.StartAsync(folder);
-                }
-                Status = $"Signed in. Synchronizing {folders.Count} folder(s) in the background.";
-            }
-            else
-            {
-                Status = "Signed in. Add one or more sync folders, then sign in again to begin syncing.";
-            }
         }
         catch (Exception ex)
         {
@@ -259,7 +301,25 @@ public sealed class LoginViewModel : INotifyPropertyChanged
         }
     }
 
+    private async Task StartBackgroundSyncAsync()
+    {
+        await _syncEngine.RegisterDeviceAsync();
+
+        var folders = AllSyncFolders.Where(Directory.Exists).ToList();
+        foreach (var folder in folders)
+        {
+            Directory.CreateDirectory(folder);
+            await _syncEngine.SyncFolderAsync(folder);
+            await _fileMonitorService.StartAsync(folder);
+        }
+
+        Status = folders.Count > 0
+            ? $"Connected. Synchronizing {folders.Count} folder(s) in the background."
+            : "Connected. Add one or more sync folders to begin background synchronization.";
+    }
+
     private async Task LoadSettingsAsync()
+
     {
         var settings = await _settingsService.LoadAsync();
         ServerUrl = string.IsNullOrWhiteSpace(settings.ServerUrl) ? ServerUrl : settings.ServerUrl;

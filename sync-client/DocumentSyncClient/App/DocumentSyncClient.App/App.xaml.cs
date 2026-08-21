@@ -66,10 +66,18 @@ public partial class App : System.Windows.Application
             .Build();
         LogStartup("Host built");
 
-        var settings = await _host.Services.GetRequiredService<IAppSettingsService>().LoadAsync();
+        var settingsService = _host.Services.GetRequiredService<IAppSettingsService>();
+        var settings = await settingsService.LoadAsync();
         LogStartup($"Settings loaded: server={settings.ServerUrl}, folder={settings.SyncFolder}");
+        var authStore = _host.Services.GetRequiredService<IAuthenticationStore>();
+        if (!settings.RememberLogin && !settings.AutoLogin)
+        {
+            await authStore.ClearAsync();
+        }
+
         var syncEngine = _host.Services.GetRequiredService<ISyncEngine>();
         await syncEngine.StartAsync();
+
         LogStartup("Sync engine started");
 
         var folders = new[] { settings.SyncFolder }
@@ -88,6 +96,11 @@ public partial class App : System.Windows.Application
         mainWindow.Show();
         mainWindow.Activate();
         LogStartup("MainWindow shown");
+
+        var loginViewModel = _host.Services.GetRequiredService<LoginViewModel>();
+        await loginViewModel.InitializeAsync();
+        LogStartup($"Login initialization completed: signedIn={loginViewModel.IsSignedIn}");
+
         }
         catch (Exception ex)
         {
@@ -101,8 +114,28 @@ public partial class App : System.Windows.Application
     /// <inheritdoc />
     protected override void OnExit(ExitEventArgs e)
     {
-        _host?.Dispose();
+        try
+        {
+            if (_host is not null)
+            {
+                var monitor = _host.Services.GetService<IFileMonitorService>();
+                monitor?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                var syncEngine = _host.Services.GetService<ISyncEngine>();
+                syncEngine?.StopAsync().GetAwaiter().GetResult();
+                var settings = _host.Services.GetService<IAppSettingsService>()?.LoadAsync().GetAwaiter().GetResult();
+                if (settings is not null && !settings.RememberLogin)
+                {
+                    _host.Services.GetService<IAuthenticationStore>()?.ClearAsync().GetAwaiter().GetResult();
+                }
+                _host.Dispose();
+            }
+        }
+        catch (Exception ex)
+        {
+            LogStartup($"Shutdown cleanup failed: {ex}");
+        }
         base.OnExit(e);
     }
+
 }
 

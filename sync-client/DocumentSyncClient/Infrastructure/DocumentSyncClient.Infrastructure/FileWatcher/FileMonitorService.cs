@@ -248,11 +248,17 @@ public sealed class FileMonitorService : IFileMonitorService
     }
 
     private async Task DrainDebouncedEventsAsync(CancellationToken cancellationToken)
-
     {
-        while (!cancellationToken.IsCancellationRequested)
+        try
         {
-            await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Expected during tray Exit or application shutdown.
         }
     }
 
