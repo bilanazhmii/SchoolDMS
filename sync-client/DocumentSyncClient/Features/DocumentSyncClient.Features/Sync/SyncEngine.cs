@@ -23,6 +23,8 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
     private readonly ILogger<SyncEngine> _logger;
     private readonly CancellationTokenSource _cts = new();
     private Task? _workerTask;
+    private Task? _heartbeatTask;
+    private int _started;
 
     public bool IsApplyingRemoteChanges { get; private set; }
 
@@ -56,8 +58,9 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
     /// <inheritdoc />
     public Task StartAsync(CancellationToken cancellationToken = default)
     {
+        if (Interlocked.Exchange(ref _started, 1) == 1) return Task.CompletedTask;
         _workerTask = Task.Run(() => RunLoopAsync(_cts.Token), cancellationToken);
-        _ = Task.Run(() => HeartbeatLoopAsync(_cts.Token), cancellationToken);
+        _heartbeatTask = Task.Run(() => HeartbeatLoopAsync(_cts.Token), cancellationToken);
         return Task.CompletedTask;
     }
 
@@ -87,10 +90,11 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
     }
 
     /// <inheritdoc />
-    public Task StopAsync(CancellationToken cancellationToken = default)
+    public async Task StopAsync(CancellationToken cancellationToken = default)
     {
         _cts.Cancel();
-        return Task.CompletedTask;
+        var tasks = new[] { _workerTask, _heartbeatTask }.Where(task => task is not null).Cast<Task>().ToArray();
+        if (tasks.Length > 0) await Task.WhenAll(tasks).WaitAsync(cancellationToken);
     }
 
     /// <inheritdoc />

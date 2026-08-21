@@ -64,6 +64,15 @@ export class FileService {
     }
   }
 
+  private synchronizedPathVariants(rawPath: string) {
+    const normalized = `/${rawPath.replace(/\\/g, '/').replace(/^\/+/, '')}`;
+    const variants = [normalized];
+    if (!normalized.toLowerCase().startsWith(`/${DEFAULT_CORE_FOLDER_NAME.toLowerCase()}/`)) {
+      variants.push(`/${DEFAULT_CORE_FOLDER_NAME}${normalized}`);
+    }
+    return [...new Set(variants)];
+  }
+
   private async ensureDefaultCoreFolder(profileId: string) {
     const existing = await this.prisma.folder.findFirst({
       where: { ownerId: profileId, parentFolderId: null, name: DEFAULT_CORE_FOLDER_NAME, deletedAt: null },
@@ -420,11 +429,11 @@ export class FileService {
   }
 
   async softDeleteByRelativePath(profileId: string, relativePath: string) {
-    const normalized = `/${relativePath.replace(/\\/g, '/').replace(/^\/+/, '')}`;
+    const variants = this.synchronizedPathVariants(relativePath);
     const file = await this.prisma.file.findFirst({
-      where: { ownerId: profileId, relativePath: normalized, deletedAt: null },
+      where: { ownerId: profileId, relativePath: { in: variants }, deletedAt: null },
     });
-    if (!file) return { missing: true, relativePath: normalized };
+    if (!file) return { missing: true, relativePath: variants[0] };
     return this.softDelete(profileId, file.id);
   }
 
@@ -459,12 +468,12 @@ export class FileService {
   }
 
   async moveByRelativePath(profileId: string, oldRelativePath: string, newRelativePath: string) {
-    const oldPath = `/${oldRelativePath.replace(/\\/g, '/').replace(/^\/+/, '')}`;
+    const oldVariants = this.synchronizedPathVariants(oldRelativePath);
     const newPath = `/${newRelativePath.replace(/\\/g, '/').replace(/^\/+/, '')}`;
     const file = await this.prisma.file.findFirst({
-      where: { ownerId: profileId, relativePath: oldPath, deletedAt: null },
+      where: { ownerId: profileId, relativePath: { in: oldVariants }, deletedAt: null },
     });
-    if (!file) return { missing: true, relativePath: oldPath };
+    if (!file) return { missing: true, relativePath: oldVariants[0] };
 
     const parts = newPath.split('/').filter(Boolean);
     const name = parts.pop() ?? file.name;

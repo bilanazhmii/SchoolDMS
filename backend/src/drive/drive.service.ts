@@ -18,6 +18,7 @@ import { STORAGE_SERVICE_TOKEN } from '../storage/storage.module';
 import { DEFAULT_CORE_FOLDER_NAME } from '../explorer/core-folder.constants';
 import { SyncStatusService } from '../sync/sync-status.service';
 import { SyncOperation } from '@prisma/client';
+import { DriveDedupeService } from './drive-dedupe.service';
 
 const ALGORITHM = 'aes-256-gcm';
 const DRIVE_FOLDER_MIME = 'application/vnd.google-apps.folder';
@@ -28,6 +29,7 @@ type DriveTreeEntry = {
   name: string;
   mimeType: string;
   size?: string | null;
+  md5Checksum?: string | null;
   modifiedTime?: string | null;
   parentId: string;
   relativePath: string;
@@ -49,6 +51,7 @@ export class DriveService implements OnModuleInit {
     private readonly config: ConfigService,
     @Inject(STORAGE_SERVICE_TOKEN) private readonly storage: IStorageService,
     private readonly sync: SyncStatusService,
+    private readonly dedupe: DriveDedupeService,
   ) {
     this.clientId = this.config.get<string>('GOOGLE_DRIVE_CLIENT_ID') ?? '';
     this.clientSecret =
@@ -140,6 +143,7 @@ export class DriveService implements OnModuleInit {
       pageToken = start.data.startPageToken ?? null;
       if (!pageToken) return;
       await this.prisma.driveAccount.update({ where: { id: account.id }, data: { driveStartPageToken: pageToken } });
+      await this.pullSync(profileId);
       return;
     }
 
@@ -628,7 +632,7 @@ export class DriveService implements OnModuleInit {
   ): Promise<DriveTreeEntry[]> {
     const response = await drive.files.list({
       q: `'${parentId}' in parents and trashed = false`,
-      fields: 'files(id, name, mimeType, size, modifiedTime)',
+      fields: 'files(id, name, mimeType, size, md5Checksum, modifiedTime)',
       pageSize: 200,
     });
     const entries: DriveTreeEntry[] = [];
@@ -641,6 +645,7 @@ export class DriveService implements OnModuleInit {
         name: file.name,
         mimeType: file.mimeType,
         size: file.size,
+        md5Checksum: file.md5Checksum,
         modifiedTime: file.modifiedTime,
         parentId,
         relativePath,
@@ -671,6 +676,8 @@ export class DriveService implements OnModuleInit {
     oauth2.setCredentials({ access_token: token });
     const drive = google.drive({ version: 'v3', auth: oauth2 });
     const entries = await this.listDriveTree(drive, rootFolderId);
+    const dedupe = await this.dedupe.repair(profileId, entries, (driveId) => this.trashFileForProfile(profileId, driveId));
+    const activeEntries = entries.filter((entry) => !dedupe.removedDriveIds.has(entry.id));
     const backendFolderIds = new Map<string, string>();
     let folderCount = 0;
     let created = 0;
@@ -696,7 +703,7 @@ export class DriveService implements OnModuleInit {
       });
     }
 
-    for (const entry of entries.filter((item) => item.isFolder)) {
+    for (const entry of activeEntries.filter((item) => item.isFolder)) {
       try {
         if (entry.parentId === rootFolderId && entry.name === DEFAULT_CORE_FOLDER_NAME) {
           const syncedCore = await this.prisma.folder.update({
@@ -733,7 +740,7 @@ export class DriveService implements OnModuleInit {
       }
     }
 
-    for (const entry of entries.filter((item) => !item.isFolder)) {
+    for (const entry of activeEntries.filter((item) => !item.isFolder)) {
       try {
         const folderId = entry.parentId === rootFolderId ? coreFolder.id : backendFolderIds.get(entry.parentId) ?? coreFolder.id;
         const insideCore = entry.relativePath === DEFAULT_CORE_FOLDER_NAME || entry.relativePath.startsWith(`${DEFAULT_CORE_FOLDER_NAME}/`);
@@ -784,7 +791,7 @@ export class DriveService implements OnModuleInit {
       }
     }
 
-    const remoteIds = new Set(entries.map((entry) => entry.id));
+    const remoteIds = new Set(activeEntries.map((entry) => entry.id));
     const staleFiles = await this.prisma.file.findMany({
       where: { ownerId: profileId, googleDriveFileId: { not: null }, deletedAt: null },
       select: { id: true, name: true, relativePath: true, googleDriveFileId: true },
@@ -807,7 +814,7 @@ export class DriveService implements OnModuleInit {
     }
 
     this.logger.log(`Drive pullSync for ${profileId}: ${folderCount} folders, ${created} created, ${updated} updated, ${skipped} skipped`);
-    return { connected: true, folders: folderCount, created, updated, skipped };
+    return { connected: true, folders: folderCount, created, updated, skipped, deduplicated: { driveItemsTrashed: dedupe.driveItemsTrashed, backendFilesRemoved: dedupe.backendFilesRemoved, backendFoldersRemoved: dedupe.backendFoldersRemoved } };
   }
 
   private async downloadDriveFile(drive: ReturnType<typeof google.drive>, fileId: string): Promise<Buffer | null> {

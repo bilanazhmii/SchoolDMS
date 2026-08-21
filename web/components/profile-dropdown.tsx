@@ -2,15 +2,21 @@
 
 import {
   FC,
+  useContext,
   useState,
 } from 'react';
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
+import type { AuthContextValue } from '../providers/auth-provider';
+import { AuthContext } from '../providers/auth-provider';
+
 const ProfileDropdown: FC = () => {
   const [open, setOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const router = useRouter();
+  const { supabase } = useContext(AuthContext) as AuthContextValue;
 
   return (
     <div className="relative">
@@ -32,7 +38,23 @@ const ProfileDropdown: FC = () => {
           <div className="py-1">
             <Link href="/profile" className="block px-4 py-2 text-sm">Profile</Link>
             <Link href="/settings" className="block px-4 py-2 text-sm">Settings</Link>
-            <button onClick={async () => { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); router.push('/login'); }} className="w-full text-left px-4 py-2 text-sm text-red-600">Sign out</button>
+            <button
+              disabled={signingOut}
+              onClick={async () => {
+                setSigningOut(true);
+                try {
+                  if (supabase) await supabase.auth.signOut({ scope: 'global' });
+                } finally {
+                  await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
+                  setOpen(false);
+                  router.replace('/login?logged_out=1');
+                  router.refresh();
+                }
+              }}
+              className="w-full text-left px-4 py-2 text-sm text-red-600 disabled:opacity-50"
+            >
+              {signingOut ? 'Signing out…' : 'Sign out'}
+            </button>
           </div>
         </div>
       )}
