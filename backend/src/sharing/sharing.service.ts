@@ -142,6 +142,65 @@ export class SharingService {
     return link;
   }
 
+  private async resolvePublicFolder(publicToken: string, requestedFolderId?: string) {
+    const link = await this.resolveActiveLink(publicToken);
+    if (!link.folderId) throw new NotFoundException('Link does not target a folder');
+
+    const root = await this.prisma.folder.findUnique({ where: { id: link.folderId } });
+    if (!root || root.deletedAt) throw new NotFoundException('Folder not found');
+
+    const folder = requestedFolderId
+      ? await this.prisma.folder.findUnique({ where: { id: requestedFolderId } })
+      : root;
+    if (!folder || folder.ownerId !== root.ownerId || folder.deletedAt) {
+      throw new NotFoundException('Folder not found');
+    }
+    const isRoot = folder.id === root.id;
+    const isDescendant = folder.relativePath.startsWith(`${root.relativePath}/`);
+    if (!isRoot && !isDescendant) {
+      throw new NotFoundException('Folder is not inside the shared folder');
+    }
+
+    return { link, root, folder };
+  }
+
+  private async assertPublicFileAccess(link: Awaited<ReturnType<SharingService['resolveActiveLink']>>, file: { ownerId: string; deletedAt: Date | null; relativePath: string }) {
+    if (!link.folderId) return;
+    const root = await this.prisma.folder.findUnique({ where: { id: link.folderId } });
+    if (!root || root.deletedAt || file.ownerId !== root.ownerId || !file.relativePath.startsWith(`${root.relativePath}/`)) {
+      throw new NotFoundException('Shared file is not inside this folder');
+    }
+  }
+
+  async getPublicFolderContents(publicToken: string, requestedFolderId?: string) {
+    const { link, root, folder } = await this.resolvePublicFolder(publicToken, requestedFolderId);
+    const [folders, files] = await Promise.all([
+      this.prisma.folder.findMany({
+        where: { ownerId: root.ownerId, parentFolderId: folder.id, deletedAt: null },
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true, parentFolderId: true, relativePath: true, createdAt: true },
+      }),
+      this.prisma.file.findMany({
+        where: { ownerId: root.ownerId, folderId: folder.id, deletedAt: null },
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true, mimeType: true, size: true, updatedAt: true },
+      }),
+    ]);
+    return {
+      type: 'folder' as const,
+      permission: link.permission,
+      description: link.description,
+      expiresAt: link.expiresAt,
+      folder: {
+        id: folder.id,
+        name: folder.name,
+        files: files.length,
+        folders: folders.map((child) => ({ ...child })),
+        items: files.map((file) => ({ ...file, size: Number(file.size) })),
+      },
+    };
+  }
+
   async getPublic(publicToken: string) {
     const link = await this.resolveActiveLink(publicToken);
 
@@ -169,28 +228,7 @@ export class SharingService {
     }
 
     if (link.folderId) {
-      const folder = await this.prisma.folder.findUnique({
-        where: { id: link.folderId },
-      });
-      if (!folder || folder.deletedAt)
-        throw new NotFoundException('Folder not found');
-      const files = await this.prisma.file.findMany({
-        where: { folderId: folder.id, deletedAt: null },
-        orderBy: { name: 'asc' },
-        select: { id: true, name: true, mimeType: true, size: true, updatedAt: true },
-      });
-      return {
-        type: 'folder',
-        permission: link.permission,
-        description: link.description,
-        expiresAt: link.expiresAt,
-        folder: {
-          id: folder.id,
-          name: folder.name,
-          files: files.length,
-          items: files.map((file) => ({ ...file, size: Number(file.size) })),
-        },
-      };
+      return this.getPublicFolderContents(publicToken, link.folderId);
     }
 
     throw new NotFoundException('Link has no target');
@@ -245,9 +283,7 @@ export class SharingService {
     const fileId = link.fileId ?? requestedFileId;
     const file = fileId ? await this.prisma.file.findUnique({ where: { id: fileId } }) : null;
     if (!file || file.deletedAt) throw new NotFoundException('File not found');
-    if (link.folderId && (!requestedFileId || file.folderId !== link.folderId)) {
-      throw new NotFoundException('Shared file is not inside this folder');
-    }
+    await this.assertPublicFileAccess(link, file);
     const latestVersion = await this.prisma.fileVersion.findFirst({
       where: { fileId: file.id },
       orderBy: { versionNumber: 'desc' },
@@ -276,10 +312,8 @@ export class SharingService {
       ? await this.prisma.file.findUnique({ where: { id: targetFileId } })
       : null;
 
-    if (link.folderId && (!requestedFileId || !file || file.folderId !== link.folderId)) {
-      throw new NotFoundException('Shared file is not inside this folder');
-    }
     if (!file || file.deletedAt) throw new NotFoundException('File not found');
+    await this.assertPublicFileAccess(link, file);
 
     const latestVersion = await this.prisma.fileVersion.findFirst({
       where: { fileId: file.id },

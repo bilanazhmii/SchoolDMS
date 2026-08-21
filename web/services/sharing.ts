@@ -43,6 +43,7 @@ export interface PublicShareFolder {
     id: ID;
     name: string;
     files: number;
+    folders: Array<{ id: ID; name: string; parentFolderId: ID | null; relativePath: string; createdAt: string }>;
     items: Array<{ id: ID; name: string; mimeType: string | null; size: number; updatedAt: string }>;
   };
 }
@@ -82,6 +83,15 @@ export async function fetchShare(
   token: string,
 ): Promise<PublicShareFile | PublicShareFolder> {
   const { data } = await api.get(`/share/${encodeURIComponent(token)}`);
+  return unwrap(data);
+}
+
+export async function fetchSharedFolderContents(token: string, folderId?: string): Promise<PublicShareFolder> {
+  const encodedToken = encodeURIComponent(token);
+  const path = folderId
+    ? `/share/${encodedToken}/contents/${encodeURIComponent(folderId)}`
+    : `/share/${encodedToken}/contents`;
+  const { data } = await api.get(path);
   return unwrap(data);
 }
 

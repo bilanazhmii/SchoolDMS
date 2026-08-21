@@ -52,6 +52,19 @@ export class SharingController {
     return { success: true, data: await this.sharing.getPublic(token) };
   }
 
+  @Get('share/:token/contents')
+  async getPublicFolderContents(@Param('token') token: string) {
+    return { success: true, data: await this.sharing.getPublicFolderContents(token) };
+  }
+
+  @Get('share/:token/contents/:folderId')
+  async getPublicSubfolderContents(
+    @Param('token') token: string,
+    @Param('folderId') folderId: string,
+  ) {
+    return { success: true, data: await this.sharing.getPublicFolderContents(token, folderId) };
+  }
+
   @Post('share/:token/content')
   async updatePublicContent(
     @Param('token') token: string,

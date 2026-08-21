@@ -4,10 +4,10 @@ import { useEffect, useState } from 'react';
 
 import { useParams } from 'next/navigation';
 
-import { Download, FileText, Folder, Link2, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, Download, FileText, Folder, Link2, ShieldAlert } from 'lucide-react';
 
 import DashboardShell from '../../../components/dashboard-shell';
-import { fetchShare, fetchSharedText, saveSharedText, shareDownloadUrl, sharePreviewUrl } from '../../../services/sharing';
+import { fetchShare, fetchSharedFolderContents, fetchSharedText, saveSharedText, shareDownloadUrl, sharePreviewUrl } from '../../../services/sharing';
 import type { PublicShareFile, PublicShareFolder } from '../../../services/sharing';
 
 function formatBytes(bytes: number): string {
@@ -162,37 +162,89 @@ function FileView({ data, token }: { data: PublicShareFile; token: string }) {
 }
 
 function FolderView({ data, token }: { data: PublicShareFolder; token: string }) {
+  const [current, setCurrent] = useState(data);
+  const [trail, setTrail] = useState<PublicShareFolder[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [folderError, setFolderError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCurrent(data);
+    setTrail([]);
+    setFolderError(null);
+  }, [data]);
+
+  async function openFolder(folderId: string) {
+    setLoading(true);
+    setFolderError(null);
+    try {
+      const next = await fetchSharedFolderContents(token, folderId);
+      setTrail((previous) => [...previous, current]);
+      setCurrent(next);
+    } catch (error) {
+      setFolderError(error instanceof Error ? error.message : 'Subfolder tidak dapat dibuka.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function goBack() {
+    const previous = trail[trail.length - 1];
+    if (!previous) return;
+    setCurrent(previous);
+    setTrail((items) => items.slice(0, -1));
+    setFolderError(null);
+  }
+
+  const hasItems = current.folder.folders.length > 0 || current.folder.items.length > 0;
+
   return (
     <div>
       <div className="flex items-center gap-3 mb-4">
         <div className="h-11 w-11 rounded-lg bg-surface-active flex items-center justify-center">
           <Folder className="h-5 w-5 text-primary" />
         </div>
-        <div>
-          <div className="text-base font-semibold text-foreground">{data.folder.name}</div>
-          <div className="text-xs text-foreground-muted">{data.folder.files} berkas</div>
-          {data.description && <div className="mt-1 text-xs text-foreground-muted">{data.description}</div>}
+        <div className="min-w-0">
+          <div className="truncate text-base font-semibold text-foreground">{current.folder.name}</div>
+          <div className="text-xs text-foreground-muted">{current.folder.folders.length} folder · {current.folder.files} berkas</div>
+          {current.description && <div className="mt-1 text-xs text-foreground-muted">{current.description}</div>}
         </div>
       </div>
       <div className="rounded-md bg-surface-active p-3 text-xs text-foreground-muted flex items-center gap-2 mb-4">
         <Link2 className="h-3.5 w-3.5" />
-        Folder publik dengan izin {data.permission}
+        Folder publik dengan izin {current.permission}
       </div>
-      <div className="space-y-2">
-        {data.folder.items.length === 0 ? (
-          <div className="text-sm text-foreground-muted">Folder ini belum memiliki file.</div>
-        ) : data.folder.items.map((item) => (
-          <div key={item.id} className="flex items-center justify-between gap-3 rounded border border-border p-3">
-            <div className="min-w-0">
-              <div className="truncate text-sm font-medium">{item.name}</div>
-              <div className="text-xs text-foreground-muted">{item.mimeType ?? 'File'} · {formatBytes(item.size)}</div>
+      {trail.length > 0 && (
+        <button type="button" onClick={goBack} disabled={loading} className="mb-3 inline-flex items-center gap-2 rounded border border-border px-3 py-1.5 text-xs hover:bg-surface-hover disabled:opacity-50">
+          <ArrowLeft className="h-3.5 w-3.5" /> Kembali
+        </button>
+      )}
+      {folderError && <div className="mb-3 rounded border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{folderError}</div>}
+      {loading ? (
+        <div className="py-8 text-center text-sm text-foreground-muted">Memuat isi folder…</div>
+      ) : !hasItems ? (
+        <div className="text-sm text-foreground-muted">Folder ini belum memiliki isi.</div>
+      ) : (
+        <div className="space-y-2">
+          {current.folder.folders.map((child) => (
+            <button key={child.id} type="button" onClick={() => openFolder(child.id)} className="flex w-full items-center gap-3 rounded border border-border p-3 text-left hover:bg-surface-hover">
+              <Folder className="h-4 w-4 shrink-0 text-primary" />
+              <span className="truncate text-sm font-medium">{child.name}</span>
+              <span className="ml-auto shrink-0 text-xs text-foreground-muted">Buka</span>
+            </button>
+          ))}
+          {current.folder.items.map((item) => (
+            <div key={item.id} className="flex items-center justify-between gap-3 rounded border border-border p-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">{item.name}</div>
+                <div className="text-xs text-foreground-muted">{item.mimeType ?? 'File'} · {formatBytes(item.size)}</div>
+              </div>
+              <a href={sharePreviewUrl(token, item.id)} target="_blank" rel="noreferrer" className="shrink-0 rounded border border-border px-3 py-1.5 text-xs hover:bg-surface-hover">
+                Buka
+              </a>
             </div>
-            <a href={sharePreviewUrl(token, item.id)} target="_blank" rel="noreferrer" className="shrink-0 rounded border border-border px-3 py-1.5 text-xs hover:bg-surface-hover">
-              Buka / Unduh
-            </a>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
