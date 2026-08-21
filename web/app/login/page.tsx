@@ -11,6 +11,7 @@ import { Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react';
 
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../providers/auth-provider';
+import { getAuthRedirectUrl } from '../../lib/auth-url';
 
 const loginSchema = z.object({
   email: z.string().email('Masukkan email yang sah'),
@@ -41,6 +42,16 @@ export default function LoginPage() {
   const registerForm = useForm<RegisterData>({ resolver: zodResolver(registerSchema) });
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const callbackError = params.get('error');
+    if (callbackError === 'otp_expired') {
+      setError('Link konfirmasi sudah kedaluwarsa atau sudah pernah digunakan. Silakan daftar ulang atau minta email konfirmasi baru.');
+    } else if (callbackError === 'verification_failed') {
+      setError('Konfirmasi email gagal. Gunakan email terbaru dan pastikan link belum dibuka oleh aplikasi pemindai email.');
+    } else if (callbackError === 'config') {
+      setError('Konfigurasi autentikasi produksi belum lengkap.');
+    }
+
     (async () => {
       if (!supabase) return;
       const { data } = await supabase.auth.getSession();
@@ -90,7 +101,7 @@ export default function LoginPage() {
     setSuccess(null);
     setLoading(true);
     try {
-      const redirectTo = `${window.location.origin}/auth/callback`;
+      const redirectTo = getAuthRedirectUrl('/auth/callback');
       const res = await supabase.auth.signUp({
         email: values.email,
         password: values.password,
