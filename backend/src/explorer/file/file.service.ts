@@ -74,21 +74,35 @@ export class FileService {
   }
 
   private async ensureDefaultCoreFolder(profileId: string) {
+    const canonicalKey = `core:${profileId}`;
     const existing = await this.prisma.folder.findFirst({
-      where: { ownerId: profileId, parentFolderId: null, name: DEFAULT_CORE_FOLDER_NAME, deletedAt: null },
+      where: { OR: [{ canonicalKey }, { ownerId: profileId, parentFolderId: null, name: DEFAULT_CORE_FOLDER_NAME, deletedAt: null }] },
       orderBy: { createdAt: 'asc' },
     });
-    if (existing) return existing.id;
+    if (existing) {
+      if (existing.canonicalKey !== canonicalKey) {
+        try { await this.prisma.folder.update({ where: { id: existing.id }, data: { canonicalKey } }); } catch { /* another request claimed the key */ }
+      }
+      return existing.id;
+    }
 
-    const folder = await this.prisma.folder.create({
-      data: {
-        name: DEFAULT_CORE_FOLDER_NAME,
-        ownerId: profileId,
-        parentFolderId: null,
-        relativePath: `/${DEFAULT_CORE_FOLDER_NAME}`,
-        visibility: 'PRIVATE',
-      },
-    });
+    let folder;
+    try {
+      folder = await this.prisma.folder.create({
+        data: {
+          name: DEFAULT_CORE_FOLDER_NAME,
+          canonicalKey,
+          ownerId: profileId,
+          parentFolderId: null,
+          relativePath: `/${DEFAULT_CORE_FOLDER_NAME}`,
+          visibility: 'PRIVATE',
+        },
+      });
+    } catch {
+      const raced = await this.prisma.folder.findUnique({ where: { canonicalKey } });
+      if (raced) return raced.id;
+      throw new Error('Unable to create canonical My Files folder');
+    }
     try {
       const driveFolderId = await this.drive.createFolderForProfile(profileId, DEFAULT_CORE_FOLDER_NAME, null);
       if (driveFolderId) {

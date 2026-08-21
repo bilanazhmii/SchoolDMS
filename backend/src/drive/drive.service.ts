@@ -684,23 +684,33 @@ export class DriveService implements OnModuleInit {
     let updated = 0;
     let skipped = 0;
 
+    const canonicalKey = `core:${profileId}`;
     let coreFolder = await this.prisma.folder.findFirst({
-      where: { ownerId: profileId, parentFolderId: null, name: DEFAULT_CORE_FOLDER_NAME, deletedAt: null },
+      where: { OR: [{ canonicalKey }, { ownerId: profileId, parentFolderId: null, name: DEFAULT_CORE_FOLDER_NAME, deletedAt: null }] },
       orderBy: { createdAt: 'asc' },
     });
+    if (coreFolder && coreFolder.canonicalKey !== canonicalKey) {
+      try { coreFolder = await this.prisma.folder.update({ where: { id: coreFolder.id }, data: { canonicalKey } }); } catch { /* another existing row owns the canonical key */ }
+    }
     if (!coreFolder) {
       const driveCoreId = await this.createFolderForProfile(profileId, DEFAULT_CORE_FOLDER_NAME, rootFolderId);
-      coreFolder = await this.prisma.folder.create({
-        data: {
-          name: DEFAULT_CORE_FOLDER_NAME,
-          ownerId: profileId,
-          parentFolderId: null,
-          relativePath: `/${DEFAULT_CORE_FOLDER_NAME}`,
-          googleDriveFolderId: driveCoreId,
-          syncStatus: driveCoreId ? 'SYNCED' : 'PENDING',
-          ...(driveCoreId ? { lastSyncedAt: new Date() } : {}),
-        },
-      });
+      try {
+        coreFolder = await this.prisma.folder.create({
+          data: {
+            name: DEFAULT_CORE_FOLDER_NAME,
+            canonicalKey,
+            ownerId: profileId,
+            parentFolderId: null,
+            relativePath: `/${DEFAULT_CORE_FOLDER_NAME}`,
+            googleDriveFolderId: driveCoreId,
+            syncStatus: driveCoreId ? 'SYNCED' : 'PENDING',
+            ...(driveCoreId ? { lastSyncedAt: new Date() } : {}),
+          },
+        });
+      } catch {
+        coreFolder = await this.prisma.folder.findUnique({ where: { canonicalKey } });
+        if (!coreFolder) throw new Error('Unable to resolve canonical My Files folder during Drive pull');
+      }
     }
 
     for (const entry of activeEntries.filter((item) => item.isFolder)) {

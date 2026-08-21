@@ -102,7 +102,7 @@ export class DriveDedupeService {
     }
 
     const driveFolderGroups = new Map<string, DedupeEntry[]>();
-    for (const entry of entries.filter((item) => item.isFolder && item.name !== 'My Files')) {
+    for (const entry of entries.filter((item) => item.isFolder)) {
       const key = `${entry.parentId}\0${entry.name}`;
       const group = driveFolderGroups.get(key) ?? [];
       group.push(entry);

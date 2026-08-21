@@ -35,21 +35,35 @@ export class FolderService {
   }
 
   private async ensureDefaultCoreFolder(profileId: string) {
+    const canonicalKey = `core:${profileId}`;
     const existing = await this.prisma.folder.findFirst({
-      where: { ownerId: profileId, parentFolderId: null, name: DEFAULT_CORE_FOLDER_NAME, deletedAt: null },
+      where: { OR: [{ canonicalKey }, { ownerId: profileId, parentFolderId: null, name: DEFAULT_CORE_FOLDER_NAME, deletedAt: null }] },
       orderBy: { createdAt: 'asc' },
     });
-    if (existing) return existing;
+    if (existing) {
+      if (existing.canonicalKey !== canonicalKey) {
+        try { return await this.prisma.folder.update({ where: { id: existing.id }, data: { canonicalKey } }); } catch { return existing; }
+      }
+      return existing;
+    }
 
-    const folder = await this.prisma.folder.create({
-      data: {
-        name: DEFAULT_CORE_FOLDER_NAME,
-        ownerId: profileId,
-        parentFolderId: null,
-        relativePath: `/${DEFAULT_CORE_FOLDER_NAME}`,
-        visibility: 'PRIVATE',
-      },
-    });
+    let folder;
+    try {
+      folder = await this.prisma.folder.create({
+        data: {
+          name: DEFAULT_CORE_FOLDER_NAME,
+          canonicalKey,
+          ownerId: profileId,
+          parentFolderId: null,
+          relativePath: `/${DEFAULT_CORE_FOLDER_NAME}`,
+          visibility: 'PRIVATE',
+        },
+      });
+    } catch {
+      const raced = await this.prisma.folder.findUnique({ where: { canonicalKey } });
+      if (raced) return raced;
+      throw new Error('Unable to create canonical My Files folder');
+    }
     try {
       const driveFolderId = await this.drive.createFolderForProfile(profileId, DEFAULT_CORE_FOLDER_NAME, null);
       if (driveFolderId) {
@@ -83,7 +97,35 @@ export class FolderService {
     });
     let foldersMoved = 0;
     for (const folder of rootFolders) {
-      await this.update(profileId, folder.id, { parentFolderId: core.id } as UpdateFolderDto);
+      if (folder.name === DEFAULT_CORE_FOLDER_NAME) {
+        const [childFolders, childFiles] = await Promise.all([
+          this.prisma.folder.findMany({ where: { parentFolderId: folder.id, ownerId: profileId, deletedAt: null }, orderBy: { createdAt: 'asc' } }),
+          this.prisma.file.findMany({ where: { folderId: folder.id, ownerId: profileId, deletedAt: null }, orderBy: { createdAt: 'asc' } }),
+        ]);
+        for (const child of childFolders) {
+          await this.update(profileId, child.id, { parentFolderId: core.id } as UpdateFolderDto);
+        }
+        for (const file of childFiles) {
+          let name = file.name;
+          let relativePath = `${core.relativePath}/${name}`;
+          const conflict = await this.prisma.file.findFirst({ where: { ownerId: profileId, folderId: core.id, relativePath, deletedAt: null, id: { not: file.id } }, select: { id: true } });
+          if (conflict) {
+            const dot = name.lastIndexOf('.');
+            const stem = dot > 0 ? name.slice(0, dot) : name;
+            const extension = dot > 0 ? name.slice(dot) : '';
+            name = `${stem} (merged-${file.id.slice(0, 8)})${extension}`;
+            relativePath = `${core.relativePath}/${name}`;
+          }
+          if (file.googleDriveFileId && core.googleDriveFolderId) {
+            try { await this.drive.moveFileForProfile(profileId, file.googleDriveFileId, core.googleDriveFolderId); } catch { /* next Drive reconciliation retries */ }
+          }
+          await this.prisma.file.update({ where: { id: file.id }, data: { name, folderId: core.id, relativePath } });
+          await this.emitRemoteChange(profileId, { operation: SyncOperation.MOVE, fileId: file.id, folderId: core.id, oldRelativePath: file.relativePath, relativePath, name });
+        }
+        await this.softDelete(profileId, folder.id);
+      } else {
+        await this.update(profileId, folder.id, { parentFolderId: core.id } as UpdateFolderDto);
+      }
       foldersMoved++;
     }
 
