@@ -164,28 +164,63 @@ export class SharingService {
     return { link, root, folder };
   }
 
-  private async assertPublicFileAccess(link: Awaited<ReturnType<SharingService['resolveActiveLink']>>, file: { ownerId: string; deletedAt: Date | null; relativePath: string }) {
+  private async assertPublicFileAccess(link: Awaited<ReturnType<SharingService['resolveActiveLink']>>, file: { ownerId: string; deletedAt: Date | null; relativePath: string; folderId: string | null }) {
     if (!link.folderId) return;
     const root = await this.prisma.folder.findUnique({ where: { id: link.folderId } });
-    if (!root || root.deletedAt || file.ownerId !== root.ownerId || !file.relativePath.startsWith(`${root.relativePath}/`)) {
+    if (!root || root.deletedAt || file.ownerId !== root.ownerId) {
       throw new NotFoundException('Shared file is not inside this folder');
     }
+    if (file.relativePath.startsWith(`${root.relativePath}/`)) return;
+    if (file.folderId) {
+      const fileFolder = await this.prisma.folder.findUnique({ where: { id: file.folderId } });
+      if (fileFolder && !fileFolder.deletedAt && fileFolder.ownerId === root.ownerId && fileFolder.relativePath.startsWith(`${root.relativePath}/`)) return;
+    }
+    throw new NotFoundException('Shared file is not inside this folder');
+  }
+
+  private normalizeRelativePath(path: string) {
+    const normalized = `/${path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')}`.replace(/\/+/g, '/');
+    return normalized === '/' ? normalized : normalized.replace(/\/$/, '');
+  }
+
+  private isDirectChildPath(parentPath: string, childPath: string) {
+    const parent = this.normalizeRelativePath(parentPath);
+    const child = this.normalizeRelativePath(childPath);
+    if (!child.startsWith(`${parent}/`)) return false;
+    return child.slice(parent.length + 1).split('/').filter(Boolean).length === 1;
   }
 
   async getPublicFolderContents(publicToken: string, requestedFolderId?: string) {
     const { link, root, folder } = await this.resolvePublicFolder(publicToken, requestedFolderId);
-    const [folders, files] = await Promise.all([
+    const folderPrefix = `${this.normalizeRelativePath(folder.relativePath)}/`;
+    const [folderCandidates, fileCandidates] = await Promise.all([
       this.prisma.folder.findMany({
-        where: { ownerId: root.ownerId, parentFolderId: folder.id, deletedAt: null },
+        where: {
+          ownerId: root.ownerId,
+          deletedAt: null,
+          OR: [
+            { parentFolderId: folder.id },
+            { relativePath: { startsWith: folderPrefix } },
+          ],
+        },
         orderBy: { name: 'asc' },
         select: { id: true, name: true, parentFolderId: true, relativePath: true, createdAt: true },
       }),
       this.prisma.file.findMany({
-        where: { ownerId: root.ownerId, folderId: folder.id, deletedAt: null },
+        where: {
+          ownerId: root.ownerId,
+          deletedAt: null,
+          OR: [
+            { folderId: folder.id },
+            { relativePath: { startsWith: folderPrefix } },
+          ],
+        },
         orderBy: { name: 'asc' },
-        select: { id: true, name: true, mimeType: true, size: true, updatedAt: true },
+        select: { id: true, name: true, mimeType: true, size: true, updatedAt: true, folderId: true, relativePath: true },
       }),
     ]);
+    const folders = folderCandidates.filter((child) => child.parentFolderId === folder.id || this.isDirectChildPath(folder.relativePath, child.relativePath));
+    const files = fileCandidates.filter((file) => file.folderId === folder.id || this.isDirectChildPath(folder.relativePath, file.relativePath));
     return {
       type: 'folder' as const,
       permission: link.permission,
