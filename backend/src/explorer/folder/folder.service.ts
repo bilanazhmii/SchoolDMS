@@ -224,7 +224,17 @@ export class FolderService {
     pageSize = 50,
     filter?: string,
   ) {
-    if (!folderId) await this.organizeRootFiles(profileId);
+    if (!folderId) {
+      const organized = await this.organizeRootFiles(profileId);
+      const core = await this.prisma.folder.findUnique({ where: { id: organized.folderId } });
+      // My Sync is a navigation root, not a content container: only the
+      // canonical head folder is shown here. Files and descendants are loaded
+      // after the user opens that folder.
+      return {
+        folders: core ? [core] : [],
+        files: [],
+      };
+    }
     const take = Math.min(200, pageSize);
     const skip = (page - 1) * take;
 
