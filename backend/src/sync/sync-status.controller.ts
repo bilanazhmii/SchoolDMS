@@ -35,8 +35,9 @@ export class SyncStatusController {
     @CurrentUser() user: AuthenticatedProfile,
     @Query('since') since?: string,
     @Query('limit') limit?: string,
+    @Query('deviceIdentifier') deviceIdentifier?: string,
   ) {
-    return { success: true, data: await this.sync.getRemoteChanges(user.id, since, limit ? Number(limit) : 200) };
+    return { success: true, data: await this.sync.getRemoteChanges(user.id, since, limit ? Number(limit) : 200, deviceIdentifier) };
   }
 
   @Get('status')

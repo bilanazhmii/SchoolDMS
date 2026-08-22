@@ -678,10 +678,16 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
         var session = await GetValidSessionAsync(cancellationToken);
         if (session is null) return;
         var settings = await _settingsService.LoadAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(settings.DeviceId))
+        {
+            settings.DeviceId = Guid.NewGuid().ToString("N");
+            await _settingsService.SaveAsync(settings, cancellationToken);
+        }
         var baseUrl = (string.IsNullOrWhiteSpace(settings.ServerUrl) ? DefaultServerUrl : settings.ServerUrl).TrimEnd('/');
+        var deviceQuery = $"&deviceIdentifier={Uri.EscapeDataString(settings.DeviceId)}";
         var query = string.IsNullOrWhiteSpace(settings.RemoteSyncCursor)
-            ? "/sync/changes?limit=200"
-            : $"/sync/changes?limit=200&since={Uri.EscapeDataString(settings.RemoteSyncCursor)}";
+            ? $"/sync/changes?limit=200{deviceQuery}"
+            : $"/sync/changes?limit=200&since={Uri.EscapeDataString(settings.RemoteSyncCursor)}{deviceQuery}";
 
         try
         {

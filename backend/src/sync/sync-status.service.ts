@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { SyncOperation, SyncStatus } from '@prisma/client';
+import { DEFAULT_CORE_FOLDER_NAME } from '../explorer/core-folder.constants';
 
 export interface DeviceTargetDto {
   relativeRoot: string;
@@ -163,7 +164,8 @@ export class SyncStatusService {
     });
   }
 
-  async getRemoteChanges(profileId: string, since?: string, limit = 200) {
+    async getRemoteChanges(profileId: string, since?: string, limit = 200, deviceIdentifier?: string) {
+
     const cursorLimit = new Date();
     let safeSince = new Date(0);
     let sinceId: string | null = null;
@@ -178,14 +180,36 @@ export class SyncStatusService {
     }
     if (Number.isNaN(safeSince.getTime())) safeSince = new Date(0);
 
+        let targetFilter: { OR: Array<{ relativePath?: { equals?: string; startsWith?: string }; oldRelativePath?: { equals?: string; startsWith?: string } }> } | undefined;
+    if (deviceIdentifier) {
+      const device = await this.prisma.device.findUnique({
+        where: { deviceIdentifier },
+        select: { id: true },
+      });
+      const targets = device
+        ? await this.prisma.deviceTarget.findMany({
+            where: { deviceId: device.id, active: true },
+            select: { relativeRoot: true },
+          })
+        : [];
+      const prefixes = targets.flatMap((target) => {
+        const root = target.relativeRoot.replace(/^[\\/]+|[\\/]+$/g, '');
+        return [`/${root}`, `/${DEFAULT_CORE_FOLDER_NAME}/${root}`];
+      });
+      targetFilter = prefixes.length
+        ? { OR: prefixes.flatMap((prefix) => [{ relativePath: { equals: prefix } }, { relativePath: { startsWith: `${prefix}/` } }, { oldRelativePath: { equals: prefix } }, { oldRelativePath: { startsWith: `${prefix}/` } }]) }
+                : { OR: [{ relativePath: { startsWith: '/__no_active_target__/' } }] };
+    }
+
+    const cursorFilter = {
+      createdAt: { lte: cursorLimit },
+      OR: sinceId
+        ? [{ createdAt: { gt: safeSince } }, { createdAt: safeSince, id: { gt: sinceId } }]
+        : [{ createdAt: { gt: safeSince } }],
+    };
     const changes = await this.prisma.remoteChange.findMany({
-      where: {
-        profileId,
-        createdAt: { lte: cursorLimit },
-        OR: sinceId
-          ? [{ createdAt: { gt: safeSince } }, { createdAt: safeSince, id: { gt: sinceId } }]
-          : [{ createdAt: { gt: safeSince } }],
-      },
+      where: targetFilter ? { AND: [{ profileId }, targetFilter, cursorFilter] } : { profileId, ...cursorFilter },
+
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: Math.min(500, Math.max(1, limit)),
     });
@@ -205,14 +229,21 @@ export class SyncStatusService {
         orderBy: { lastSeen: 'desc' },
         take: 10,
         select: {
-          id: true,
+                    id: true,
+          deviceIdentifier: true,
           hostname: true,
+
           machineName: true,
           clientVersion: true,
           status: true,
           lastSeen: true,
-          platform: true,
+                    platform: true,
+          targets: {
+            orderBy: { relativeRoot: 'asc' },
+            select: { id: true, relativeRoot: true, localPath: true, active: true, updatedAt: true },
+          },
         },
+
       }),
       this.prisma.syncSession.findMany({
         where: { profileId, status: 'ACTIVE' },
@@ -258,10 +289,13 @@ export class SyncStatusService {
     const onlineDevices = devices.filter((d) => d.lastSeen && d.lastSeen >= onlineWindow);
 
     return {
-      devices: devices.map((d) => ({
+            devices: devices.map((d) => ({
         ...d,
         online: Boolean(d.lastSeen && d.lastSeen >= onlineWindow),
+        targetCount: d.targets.length,
+        activeTargetCount: d.targets.filter((target) => target.active).length,
       })),
+
       onlineCount: onlineDevices.length,
       sessions: sessions.map((s) => ({
         ...s,
