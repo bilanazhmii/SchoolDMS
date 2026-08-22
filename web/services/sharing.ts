@@ -95,24 +95,31 @@ export async function fetchSharedFolderContents(token: string, folderId?: string
   return unwrap(data);
 }
 
-export async function fetchSharedText(token: string): Promise<string> {
-  const response = await api.get(`/share/${encodeURIComponent(token)}/preview`, { responseType: 'text' });
+export async function fetchSharedText(token: string, fileId?: string): Promise<string> {
+  const suffix = fileId ? `/preview/${encodeURIComponent(fileId)}` : '/preview';
+  const response = await api.get(`/share/${encodeURIComponent(token)}${suffix}`, { responseType: 'text' });
   return response.data as string;
 }
 
-export async function saveSharedText(token: string, content: string): Promise<unknown> {
-  const { data } = await api.post(`/share/${encodeURIComponent(token)}/content`, { content });
+export async function saveSharedText(token: string, content: string, fileId?: string): Promise<unknown> {
+  const { data } = await api.post(`/share/${encodeURIComponent(token)}/content`, { content, fileId });
   return unwrap(data);
 }
 
+function backendOrigin(): string {
+  return (process.env.NEXT_PUBLIC_API_URL ?? '')
+    .replace(/\/+$/, '')
+    .replace(/\/api$/i, '');
+}
+
 export function shareDownloadUrl(token: string, fileId?: string): string {
-  const base = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/$/, '');
+  const base = backendOrigin();
   const suffix = fileId ? `/download/${encodeURIComponent(fileId)}` : '/download';
   return `${base}/share/${encodeURIComponent(token)}${suffix}`;
 }
 
 export function sharePreviewUrl(token: string, fileId?: string): string {
-  const base = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/$/, '');
+  const base = backendOrigin();
   const suffix = fileId ? `/preview/${encodeURIComponent(fileId)}` : '/preview';
   return `${base}/share/${encodeURIComponent(token)}${suffix}`;
 }

@@ -269,13 +269,17 @@ export class SharingService {
     throw new NotFoundException('Link has no target');
   }
 
-  async updatePublicText(publicToken: string, content: string) {
+  async updatePublicText(publicToken: string, content: string, requestedFileId?: string) {
     const link = await this.resolveActiveLink(publicToken);
-    if (link.permission !== SharePermission.EDIT || !link.fileId) {
+    if (link.permission !== SharePermission.EDIT) {
       throw new ForbiddenException('This link does not allow editing');
     }
-    const file = await this.prisma.file.findUnique({ where: { id: link.fileId } });
+
+    const targetFileId = link.fileId ?? requestedFileId;
+    if (!targetFileId) throw new BadRequestException('A file is required for editing');
+    const file = await this.prisma.file.findUnique({ where: { id: targetFileId } });
     if (!file || file.deletedAt) throw new NotFoundException('File not found');
+    await this.assertPublicFileAccess(link, file);
     const editable = file.mimeType.startsWith('text/') || /json|xml|javascript|typescript|csv|markdown/.test(file.mimeType);
     if (!editable) throw new BadRequestException('Only text-like files can be edited in the browser');
 

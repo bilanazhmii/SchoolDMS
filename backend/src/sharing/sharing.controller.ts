@@ -68,9 +68,9 @@ export class SharingController {
   @Post('share/:token/content')
   async updatePublicContent(
     @Param('token') token: string,
-    @Body() body: { content?: string },
+    @Body() body: { content?: string; fileId?: string },
   ) {
-    return { success: true, data: await this.sharing.updatePublicText(token, body.content ?? '') };
+    return { success: true, data: await this.sharing.updatePublicText(token, body.content ?? '', body.fileId) };
   }
 
   @Get('share/:token/preview')
