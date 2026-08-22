@@ -698,15 +698,29 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
         var localPath = ResolveLocalPath(settings, relativePath);
         var oldLocalPath = ResolveLocalPath(settings, oldRelativePath);
 
+                var localRoot = string.IsNullOrWhiteSpace(settings.SyncFolder) ? null : NormalizePath(settings.SyncFolder);
         if (operation == "DELETE")
         {
+            if (localPath is not null && localRoot is not null && string.Equals(localPath, localRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning("Ignoring remote delete of the configured local head folder {Root}.", localRoot);
+                return;
+            }
             DeleteLocalPath(localPath);
             return;
         }
 
         if (operation is "MOVE" or "RENAME")
         {
+            if (oldLocalPath is not null && localPath is not null && localRoot is not null &&
+                (string.Equals(oldLocalPath, localRoot, StringComparison.OrdinalIgnoreCase) || string.Equals(localPath, localRoot, StringComparison.OrdinalIgnoreCase)))
+            {
+                _logger.LogWarning("Ignoring remote move/rename of the configured local head folder {Root}.", localRoot);
+                return;
+            }
+
             if (oldLocalPath is not null && localPath is not null && !string.Equals(oldLocalPath, localPath, StringComparison.OrdinalIgnoreCase))
+
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
                 if (Directory.Exists(oldLocalPath))
@@ -757,11 +771,14 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
     {
         if (string.IsNullOrWhiteSpace(relativePath) || string.IsNullOrWhiteSpace(settings.SyncFolder)) return null;
         var normalized = relativePath.Replace('\\', '/').Trim('/');
-        var parts = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var parts = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries).ToList();
+        if (parts.Count > 0 && string.Equals(parts[0], "My Files", StringComparison.OrdinalIgnoreCase))
+            parts.RemoveAt(0);
+
         var rootFull = NormalizePath(settings.SyncFolder);
         var rootName = Path.GetFileName(rootFull.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        var start = parts.Length > 0 && string.Equals(parts[0], rootName, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
-        var candidate = NormalizePath(Path.Combine(new[] { rootFull }.Concat(parts.Skip(start).ToArray()).ToArray()));
+        var start = parts.Count > 0 && string.Equals(parts[0], rootName, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        var candidate = NormalizePath(Path.Combine(new[] { rootFull }.Concat(parts.Skip(start)).ToArray()));
         return IsPathWithinRoot(candidate, rootFull, allowRoot: true) ? candidate : null;
     }
 
