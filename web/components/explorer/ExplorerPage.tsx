@@ -128,14 +128,15 @@ const ExplorerInner: React.FC = () => {
   }, [previewFile?.id]);
 
   return (
-    <div className="grid grid-cols-12 gap-0">
+        <div className="grid grid-cols-1 gap-0 lg:grid-cols-[220px_minmax(0,1fr)_360px]">
       {/* Folder tree */}
-      <aside className="hidden sm:block sm:col-span-3 lg:col-span-2 border-r border-border bg-card">
+      <aside className="hidden min-w-0 border-r border-border bg-card lg:block">
         <FolderTree />
       </aside>
 
       {/* Main content */}
-      <main className="col-span-12 sm:col-span-9 lg:col-span-8">
+      <main className="min-w-0">
+
         <div className="border-b border-border px-4 py-3">
           <Breadcrumb
             items={[
@@ -162,34 +163,19 @@ const ExplorerInner: React.FC = () => {
         )}
       </main>
 
-            {/* Detail panels stay on the right on wide screens and move below the content on smaller screens. */}
-      <section className="col-span-12 border-t border-border bg-card lg:hidden">
-        <div className="grid gap-4 p-4 md:grid-cols-2">
-          <div className="rounded-lg border border-border bg-card p-4"><FilePreviewPanel file={previewFile} /></div>
-          <div className="rounded-lg border border-border bg-card p-4"><MetadataPanel fileId={previewFile?.id} /></div>
-          <div className="rounded-lg border border-border bg-card p-4"><VersionHistoryPanel fileId={previewFile?.id} /></div>
-          <div className="rounded-lg border border-border bg-card p-4"><QRPanel fileUrl={shareUrl} /></div>
+                  {/* Detail area: below the file list on smaller screens, fixed-width rail on wide screens. */}
+      <section className="border-t border-border bg-card lg:hidden">
+        <div className="p-4">
+          <DetailPanel file={previewFile} fileUrl={shareUrl} />
         </div>
       </section>
 
-      {/* Right preview/metadata panels */}
-      <aside className="hidden lg:block lg:col-span-2 xl:col-span-3 border-l border-border bg-card">
-
-        <div className="p-4 space-y-4 overflow-y-auto">
-          <div className="rounded-lg border border-border bg-card p-4">
-            <FilePreviewPanel file={previewFile} />
-          </div>
-          <div className="rounded-lg border border-border bg-card p-4">
-            <MetadataPanel fileId={previewFile?.id} />
-          </div>
-          <div className="rounded-lg border border-border bg-card p-4">
-            <VersionHistoryPanel fileId={previewFile?.id} />
-          </div>
-          <div className="rounded-lg border border-border bg-card p-4">
-            <QRPanel fileUrl={shareUrl} />
-          </div>
+      <aside className="hidden min-w-0 border-l border-border bg-card lg:block">
+        <div className="sticky top-0 max-h-[calc(100vh-7rem)] overflow-y-auto p-4">
+          <DetailPanel file={previewFile} fileUrl={shareUrl} />
         </div>
       </aside>
+
       <MoveDialog open={Boolean(moveTarget)} title={moveTarget ? `Move ${moveTarget.name}` : 'Move item'} onClose={() => { if (!actionBusy) setMoveTarget(null); }} onConfirm={confirmMove} busy={actionBusy} />
       <ShareDialog
         fileId={shareTarget?.fileId}
@@ -202,7 +188,39 @@ const ExplorerInner: React.FC = () => {
   );
 };
 
+function DetailPanel({ file, fileUrl }: { file?: FileItem | null; fileUrl?: string | null }) {
+  if (!file) {
+    return (
+      <div className="flex min-h-[220px] flex-col items-center justify-center rounded-xl border border-dashed border-border bg-surface-active px-6 py-10 text-center">
+        <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-primary-subtle text-primary">
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 5.5A2.5 2.5 0 0 1 6.5 3h7.879a2.5 2.5 0 0 1 1.768.732l3.121 3.121A2.5 2.5 0 0 1 20 8.621V18.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18.5v-13Z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 3.5V8h4.5M8 12h8M8 15.5h5" />
+          </svg>
+        </div>
+        <h2 className="text-sm font-semibold text-foreground">Detail file</h2>
+        <p className="mt-1 max-w-xs text-xs leading-5 text-foreground-muted">Pilih file lalu buka dengan klik dua kali untuk melihat preview, metadata, versi, dan opsi share.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl border border-border bg-surface-active px-4 py-3">
+        <p className="text-2xs font-semibold uppercase tracking-[0.16em] text-foreground-faint">Detail file</p>
+        <p className="mt-1 truncate text-sm font-semibold text-foreground" title={file.relativePath ?? file.name}>{file.name}</p>
+        <p className="mt-0.5 truncate text-2xs text-foreground-muted" title={file.relativePath ?? file.name}>{file.relativePath ?? file.name}</p>
+      </div>
+      <div className="rounded-xl border border-border bg-card"><FilePreviewPanel file={file} /></div>
+      <div className="rounded-xl border border-border bg-card"><MetadataPanel fileId={file.id} /></div>
+      <div className="rounded-xl border border-border bg-card"><VersionHistoryPanel fileId={file.id} /></div>
+      <div className="rounded-xl border border-border bg-card"><QRPanel fileUrl={fileUrl} /></div>
+    </div>
+  );
+}
+
 function ErrorState({ onRetry }: { onRetry: () => void }) {
+
   return (
     <div className="p-12 text-center">
       <p className="text-sm text-foreground-muted mb-3">Unable to load folder contents.</p>
