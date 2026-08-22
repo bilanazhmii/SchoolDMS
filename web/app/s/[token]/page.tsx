@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ArrowLeft, Download, ExternalLink, FileText, Folder, Image as ImageIcon, LayoutGrid, Link2, List, Music, ShieldAlert, Video } from 'lucide-react';
+import { ArrowLeft, ExternalLink, FileText, Folder, Image as ImageIcon, LayoutGrid, Link2, List, Music, ShieldAlert, Video } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { fetchShare, fetchSharedFolderContents, fetchSharedText, saveSharedText, shareDownloadUrl, sharePreviewUrl } from '../../../services/sharing';
 import type { PublicShareFile, PublicShareFolder } from '../../../services/sharing';
@@ -159,7 +159,7 @@ function FileView({ data, token }: { data: PublicShareFile; token: string }) {
 
       <div className="flex flex-wrap gap-2">
         <a href={previewUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-surface-hover"><ExternalLink className="h-4 w-4" />Buka file</a>
-        {canDownload ? <a href={shareDownloadUrl(token)} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover"><Download className="h-4 w-4" />Unduh</a> : <span className="self-center text-xs text-foreground-muted">Role VIEW tidak mengizinkan unduhan.</span>}
+        {canDownload ? <a href={shareDownloadUrl(token)} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover">Unduh</a> : <span className="self-center text-xs text-foreground-muted">Role VIEW tidak mengizinkan unduhan.</span>}
       </div>
 
       {fullView && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 p-4" onClick={() => setFullView(false)}><button type="button" className="absolute right-4 top-4 rounded bg-white/10 px-3 py-2 text-sm text-white">Tutup</button><img src={previewUrl} alt={data.file.name} className="max-h-[90vh] max-w-[95vw] object-contain" /></div>}
@@ -199,7 +199,7 @@ function FolderFileRow({ token, permission, item, compact }: { token: string; pe
       <InlinePreview url={previewUrl} name={item.name} mime={mime} token={token} fileId={item.id} compact={compact} />
       {editing && canEdit && <div className="mb-3 rounded border border-border p-3"><textarea value={text} onChange={(event) => setText(event.target.value)} className="min-h-40 w-full rounded border border-border bg-surface px-3 py-2 font-mono text-xs" /><button type="button" onClick={save} disabled={saving} className="mt-2 rounded bg-primary px-3 py-1.5 text-xs text-primary-foreground disabled:opacity-50">{saving ? 'Menyimpan…' : 'Simpan perubahan'}</button></div>}
       {message && <div className="mb-3 text-xs text-foreground-muted">{message}</div>}
-      <div className="flex flex-wrap gap-2"><a href={previewUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-surface-hover"><ExternalLink className="h-3.5 w-3.5" />Buka</a>{canEdit && <button type="button" onClick={() => void beginEdit()} className="inline-flex items-center gap-1.5 rounded border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-surface-hover">Edit</button>}{canDownload && <a href={shareDownloadUrl(token, item.id)} className="inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary-hover"><Download className="h-3.5 w-3.5" />Unduh</a>}</div>
+      <div className="flex flex-wrap gap-2"><a href={previewUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-surface-hover"><ExternalLink className="h-3.5 w-3.5" />Buka</a>{canEdit && <button type="button" onClick={() => void beginEdit()} className="inline-flex items-center gap-1.5 rounded border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-surface-hover">Edit</button>}{canDownload && <a href={shareDownloadUrl(token, item.id)} className="inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary-hover">Unduh</a>}</div>
     </article>
   );
 }
