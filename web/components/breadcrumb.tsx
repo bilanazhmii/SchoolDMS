@@ -17,7 +17,7 @@ const Breadcrumb: FC<{ items?: BreadcrumbItem[] }> = ({ items }) => {
     <nav aria-label="Breadcrumb" className="mb-4">
       <ol className="flex items-center gap-1 text-2xs text-foreground-muted">
         <li className="flex items-center">
-          <Link href="/" className="text-foreground-muted hover:text-foreground transition-colors">
+          <Link href="/dashboard" className="text-foreground-muted hover:text-foreground transition-colors">
             <Home className="h-3.5 w-3.5" />
           </Link>
         </li>

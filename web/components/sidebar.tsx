@@ -10,7 +10,7 @@ const Sidebar: FC = () => {
       <div className="p-4 flex-1 overflow-y-auto">
         <nav className="space-y-1">
           <Section title="Main">
-            <NavItem href="/">Dashboard</NavItem>
+            <NavItem href="/dashboard">Dashboard</NavItem>
             <NavItem href="/explorer">Explorer</NavItem>
             <NavItem href="/drive">Drive</NavItem>
           </Section>

@@ -19,7 +19,7 @@ const Navbar: FC = () => {
         <div className="h-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <MobileNav />
-            <Link href="/" className="flex items-center gap-3">
+            <Link href="/dashboard" className="flex items-center gap-3">
                             <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl bg-slate-950 ring-1 ring-slate-200">
                 <Image src="/schooldms-mark.png" alt="SchoolDMS" width={36} height={36} className="h-9 w-9 object-contain" priority />
               </div>

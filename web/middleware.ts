@@ -14,7 +14,7 @@ export function middleware(req: NextRequest) {
   }
 
   // Login and email confirmation callbacks are public; they establish the session.
-  if (pathname === '/login' || pathname.startsWith('/auth/callback') || pathname.startsWith('/auth/confirm') || pathname.startsWith('/s/')) {
+  if (pathname === '/' || pathname === '/login' || pathname.startsWith('/auth/callback') || pathname.startsWith('/auth/confirm') || pathname.startsWith('/s/')) {
     return;
   }
 
