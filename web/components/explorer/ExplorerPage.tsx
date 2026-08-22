@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useEffect, useState } from 'react';
+import React, { Suspense, useState } from 'react';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -10,7 +10,7 @@ import {
   useExplorerContext,
 } from '../../providers/explorer-provider';
 import { copyFolder, copyItem, deleteFolder, deleteItem, fetchFolderContents, moveFolder, moveItem, renameFile, renameFolder } from '../../services/explorer';
-import { createShareLink, sharePageUrl } from '../../services/sharing';
+
 import type { FileItem, FolderItem } from '../../types/explorer';
 import Breadcrumb from '../breadcrumb';
 import { Skeleton } from '../ui';
@@ -119,25 +119,10 @@ const ExplorerInner: React.FC = () => {
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    if (!previewFile?.id) {
-      setShareUrl(undefined);
-      return;
-    }
-    createShareLink(previewFile.id, 'VIEW')
-      .then((link) => {
-        if (cancelled) return;
-        const path = sharePageUrl(link.publicToken);
-        setShareUrl(`${window.location.origin}${path}`);
-      })
-      .catch(() => {
-        if (!cancelled) setShareUrl(undefined);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [previewFile?.id]);
+  const openShareDialog = (item: FileItem | FolderItem) => {
+    setShareUrl(undefined);
+    setShareTarget('mimeType' in item ? { fileId: item.id, name: item.name } : { folderId: item.id, name: item.name });
+  };
 
   return (
         <div className="grid grid-cols-1 gap-0 lg:grid-cols-[220px_minmax(0,1fr)_360px]">
@@ -169,9 +154,9 @@ const ExplorerInner: React.FC = () => {
         ) : !hasItems ? (
           <EmptyState />
         ) : view === 'grid' ? (
-          <GridView files={files} folders={folders} onOpenFolder={openFolder} onAction={handleAction} onShare={(item) => setShareTarget('mimeType' in item ? { fileId: item.id, name: item.name } : { folderId: item.id, name: item.name })} />
+          <GridView files={files} folders={folders} onOpenFolder={openFolder} onAction={handleAction} onShare={openShareDialog} />
         ) : (
-          <ListView files={files} folders={folders} onOpenFolder={openFolder} onAction={handleAction} onShare={(item) => setShareTarget('mimeType' in item ? { fileId: item.id, name: item.name } : { folderId: item.id, name: item.name })} />
+          <ListView files={files} folders={folders} onOpenFolder={openFolder} onAction={handleAction} onShare={openShareDialog} />
         )}
       </main>
 
@@ -195,6 +180,7 @@ const ExplorerInner: React.FC = () => {
         targetName={shareTarget?.name}
         open={Boolean(shareTarget)}
         onClose={() => setShareTarget(null)}
+        onCreated={(url) => setShareUrl(url)}
       />
     </div>
   );

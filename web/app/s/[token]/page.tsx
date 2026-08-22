@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ArrowLeft, Download, ExternalLink, FileText, Folder, Image as ImageIcon, Link2, Music, ShieldAlert, Video } from 'lucide-react';
+import { ArrowLeft, Download, ExternalLink, FileText, Folder, Image as ImageIcon, LayoutGrid, Link2, List, Music, ShieldAlert, Video } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { fetchShare, fetchSharedFolderContents, fetchSharedText, saveSharedText, shareDownloadUrl, sharePreviewUrl } from '../../../services/sharing';
 import type { PublicShareFile, PublicShareFolder } from '../../../services/sharing';
@@ -105,11 +105,12 @@ function TextInlinePreview({ token, fileId }: { token: string; fileId?: string }
   return <pre className="mb-5 max-h-[32rem] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-active p-4 font-mono text-xs leading-5 text-foreground">{content}</pre>;
 }
 
-function InlinePreview({ url, name, mime, token, fileId, onImageClick }: { url: string; name: string; mime: string; token: string; fileId?: string; onImageClick?: () => void }) {
-  if (mime.startsWith('image/')) return <button type="button" onClick={onImageClick} className="mb-5 block w-full cursor-zoom-in rounded-lg border border-border bg-black/5 p-2"><img src={url} alt={name} className="max-h-[30rem] w-full rounded object-contain" /></button>;
-  if (mime.startsWith('video/')) return <video src={url} controls className="mb-5 max-h-[30rem] w-full rounded-lg bg-black" />;
-  if (mime.startsWith('audio/')) return <audio src={url} controls className="mb-5 w-full" />;
-  if (mime === 'application/pdf') return <iframe src={url} title={name} className="mb-5 h-[32rem] w-full rounded-lg border border-border" />;
+function InlinePreview({ url, name, mime, token, fileId, onImageClick, compact = false }: { url: string; name: string; mime: string; token: string; fileId?: string; onImageClick?: () => void; compact?: boolean }) {
+  if (mime.startsWith('image/')) return <button type="button" onClick={onImageClick} className={compact ? 'mb-3 block w-full cursor-zoom-in rounded-lg border border-border bg-black/5 p-1.5' : 'mb-5 block w-full cursor-zoom-in rounded-lg border border-border bg-black/5 p-2'}><img src={url} alt={name} loading="lazy" decoding="async" className={compact ? 'h-28 w-full rounded object-contain' : 'max-h-[30rem] w-full rounded object-contain'} /></button>;
+  if (compact) return <div className="mb-3 rounded-lg border border-dashed border-border bg-surface-active px-3 py-3 text-center text-xs text-foreground-muted">Klik Buka untuk melihat preview file</div>;
+  if (mime.startsWith('video/')) return <video src={url} controls preload="metadata" className="mb-5 max-h-[30rem] w-full rounded-lg bg-black" />;
+  if (mime.startsWith('audio/')) return <audio src={url} controls preload="metadata" className="mb-5 w-full" />;
+  if (mime === 'application/pdf') return <iframe src={url} title={name} loading="lazy" className="mb-5 h-[32rem] w-full rounded-lg border border-border" />;
   if (isTextLike(mime)) return <TextInlinePreview token={token} fileId={fileId} />;
   return <div className="mb-5 rounded-lg border border-dashed border-border bg-surface-active px-4 py-6 text-center text-sm text-foreground-muted">Format {mime} tidak dapat dipreview langsung di browser. Gunakan tombol Buka atau Unduh sesuai izin link.</div>;
 }
@@ -166,7 +167,7 @@ function FileView({ data, token }: { data: PublicShareFile; token: string }) {
   );
 }
 
-function FolderFileRow({ token, permission, item }: { token: string; permission: PublicShareFolder['permission']; item: PublicShareFolder['folder']['items'][number] }) {
+function FolderFileRow({ token, permission, item, compact }: { token: string; permission: PublicShareFolder['permission']; item: PublicShareFolder['folder']['items'][number]; compact: boolean }) {
   const mime = effectiveMimeType(item.name, item.mimeType);
   const canDownload = permission === 'DOWNLOAD' || permission === 'EDIT';
   const canEdit = permission === 'EDIT' && isTextLike(mime);
@@ -195,7 +196,7 @@ function FolderFileRow({ token, permission, item }: { token: string; permission:
   return (
     <article className="rounded-lg border border-border p-4">
       <div className="flex items-start gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-surface-active"><FileIcon mime={mime} /></div><div className="min-w-0 flex-1"><div className="truncate text-sm font-medium text-foreground">{item.name}</div><div className="mt-1 truncate text-xs text-foreground-muted">{mime} · {formatBytes(item.size)}</div></div></div>
-      <InlinePreview url={previewUrl} name={item.name} mime={mime} token={token} fileId={item.id} />
+      <InlinePreview url={previewUrl} name={item.name} mime={mime} token={token} fileId={item.id} compact={compact} />
       {editing && canEdit && <div className="mb-3 rounded border border-border p-3"><textarea value={text} onChange={(event) => setText(event.target.value)} className="min-h-40 w-full rounded border border-border bg-surface px-3 py-2 font-mono text-xs" /><button type="button" onClick={save} disabled={saving} className="mt-2 rounded bg-primary px-3 py-1.5 text-xs text-primary-foreground disabled:opacity-50">{saving ? 'Menyimpan…' : 'Simpan perubahan'}</button></div>}
       {message && <div className="mb-3 text-xs text-foreground-muted">{message}</div>}
       <div className="flex flex-wrap gap-2"><a href={previewUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-surface-hover"><ExternalLink className="h-3.5 w-3.5" />Buka</a>{canEdit && <button type="button" onClick={() => void beginEdit()} className="inline-flex items-center gap-1.5 rounded border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-surface-hover">Edit</button>}{canDownload && <a href={shareDownloadUrl(token, item.id)} className="inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary-hover"><Download className="h-3.5 w-3.5" />Unduh</a>}</div>
@@ -221,13 +222,18 @@ function FolderView({ data, token }: { data: PublicShareFolder; token: string })
   function goBack() { const previous = trail[trail.length - 1]; if (!previous) return; setCurrent(previous); setTrail((items) => items.slice(0, -1)); setFolderError(null); }
 
   const hasItems = current.folder.folders.length > 0 || current.folder.items.length > 0;
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  const itemLayout = viewMode === 'grid' ? 'grid gap-3 sm:grid-cols-2' : 'space-y-3';
   return (
     <article className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-7">
       <div className="mb-5 flex items-start gap-3"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary-subtle"><Folder className="h-5 w-5 text-primary" /></div><div className="min-w-0"><h1 className="truncate text-lg font-semibold text-foreground">{current.folder.name}</h1><p className="mt-1 text-xs text-foreground-muted">{current.folder.folders.length} subfolder · {current.folder.files} file di folder ini</p>{current.description && <p className="mt-2 text-sm text-foreground-muted">{current.description}</p>}</div></div>
-      <div className="mb-5 flex items-center gap-2 rounded-lg bg-surface-active p-3 text-xs text-foreground-muted"><Link2 className="h-3.5 w-3.5" />Role link: <strong className="text-foreground">{current.permission}</strong><span className="ml-auto">Cloud share</span></div>
+      <div className="mb-5 flex flex-wrap items-center gap-3 rounded-lg bg-surface-active p-3 text-xs text-foreground-muted"><Link2 className="h-3.5 w-3.5" />Role link: <strong className="text-foreground">{current.permission}</strong><span className="hidden sm:inline">Cloud share</span><div className="ml-auto flex items-center gap-1 rounded-md border border-border bg-card p-1" aria-label="Mode tampilan"><button type="button" onClick={() => setViewMode('list')} className={viewMode === 'list' ? 'rounded bg-primary p-1.5 text-primary-foreground' : 'rounded p-1.5 text-foreground-muted hover:bg-surface-hover'} aria-label="Tampilan daftar"><List className="h-4 w-4" /></button><button type="button" onClick={() => setViewMode('grid')} className={viewMode === 'grid' ? 'rounded bg-primary p-1.5 text-primary-foreground' : 'rounded p-1.5 text-foreground-muted hover:bg-surface-hover'} aria-label="Tampilan grid"><LayoutGrid className="h-4 w-4" /></button></div></div>
       {trail.length > 0 && <button type="button" onClick={goBack} disabled={loading} className="mb-4 inline-flex items-center gap-2 rounded border border-border px-3 py-1.5 text-xs hover:bg-surface-hover disabled:opacity-50"><ArrowLeft className="h-3.5 w-3.5" />Kembali</button>}
       {folderError && <div className="mb-4 rounded border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{folderError}</div>}
-      {loading ? <div className="py-10 text-center text-sm text-foreground-muted">Memuat isi folder…</div> : !hasItems ? <div className="rounded-lg border border-dashed border-border py-10 text-center text-sm text-foreground-muted">Folder ini belum memiliki file atau subfolder.</div> : <div className="space-y-3">{current.folder.folders.map((child) => <button key={child.id} type="button" onClick={() => openFolder(child.id)} className="flex w-full items-center gap-3 rounded-lg border border-border p-4 text-left hover:bg-surface-hover"><Folder className="h-5 w-5 shrink-0 text-primary" /><span className="truncate text-sm font-medium text-foreground">{child.name}</span><span className="ml-auto text-xs text-foreground-muted">Buka subfolder</span></button>)}{current.folder.items.map((item) => <FolderFileRow key={item.id} token={token} permission={current.permission} item={item} />)}</div>}
+      {loading ? <div className="py-10 text-center text-sm text-foreground-muted">Memuat isi folder…</div> : !hasItems ? <div className="rounded-lg border border-dashed border-border py-10 text-center text-sm text-foreground-muted">Folder ini belum memiliki file atau subfolder.</div> : <div className="space-y-6">
+        {current.folder.folders.length > 0 && <section><div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-foreground-muted"><Folder className="h-3.5 w-3.5 text-primary" />Subfolder</div><div className={itemLayout}>{current.folder.folders.map((child) => <button key={child.id} type="button" onClick={() => openFolder(child.id)} className={viewMode === 'grid' ? 'flex min-h-24 flex-col items-start justify-between gap-2 rounded-lg border border-border p-4 text-left hover:bg-surface-hover' : 'flex w-full items-center gap-3 rounded-lg border border-border p-4 text-left hover:bg-surface-hover'}><Folder className="h-5 w-5 shrink-0 text-primary" /><span className="truncate text-sm font-medium text-foreground">{child.name}</span><span className="text-xs text-foreground-muted">Klik untuk membuka</span></button>)}</div></section>}
+        {current.folder.items.length > 0 && <section><div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-foreground-muted"><FileText className="h-3.5 w-3.5" />File</div><div className={itemLayout}>{current.folder.items.map((item) => <FolderFileRow key={item.id} token={token} permission={current.permission} item={item} compact={viewMode === 'grid'} />)}</div></section>}
+      </div>}
     </article>
   );
 }

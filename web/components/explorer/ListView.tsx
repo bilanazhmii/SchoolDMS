@@ -78,11 +78,11 @@ const ListView: FC<{
 
           {files.map((file) => {
             const selected = selection.includes(file.id);
-            const Icon = getFileIcon(file.mimeType);
+            const Icon = getFileIcon(file.name, file.mimeType);
             return (
               <tr key={file.id} onClick={() => toggle(file.id)} onDoubleClick={() => openFile(file)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') openFile(file); if (e.key === ' ') { e.preventDefault(); toggle(file.id); } }} className={cn('group cursor-pointer border-b border-border-subtle transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary', selected ? 'bg-primary-subtle' : 'hover:bg-surface-hover')}>
                 <td className="px-3 py-2.5"><div className="flex items-center gap-3"><input type="checkbox" checked={selected} onChange={() => toggle(file.id)} onClick={(e) => e.stopPropagation()} aria-label={`Select ${file.name}`} className="h-4 w-4 accent-primary" /><div className="h-7 w-7 shrink-0 rounded-md bg-surface-active flex items-center justify-center"><Icon className="h-3.5 w-3.5 text-foreground-muted" /></div><div className="min-w-0"><div className="truncate text-sm text-foreground">{file.name}</div></div>{file.favorite && <Star className="h-3 w-3 text-warning shrink-0" />}</div></td>
-                <td className="px-3 py-2.5 text-xs text-foreground-muted hidden sm:table-cell">{getFileType(file.mimeType)}</td>
+                <td className="px-3 py-2.5 text-xs text-foreground-muted hidden sm:table-cell">{getFileType(file.name, file.mimeType)}</td>
                 <td className="px-3 py-2.5 text-xs text-foreground-muted hidden md:table-cell">{formatDate(file.modifiedAt)}</td>
                 <td className="px-3 py-2.5 text-xs text-foreground-muted hidden sm:table-cell">{formatSize(file.size)}</td>
                 <td className="px-3 py-2.5 hidden lg:table-cell"><span className="inline-flex items-center gap-1.5 text-2xs text-foreground-muted"><span className={cn('h-1.5 w-1.5 rounded-full', file.syncStatus === 'SYNCED' ? 'bg-success' : file.syncStatus === 'FAILED' || file.syncStatus === 'CONFLICT' ? 'bg-danger' : 'bg-warning')} />{formatSyncStatus(file.syncStatus)}</span></td>
@@ -96,21 +96,33 @@ const ListView: FC<{
   );
 };
 
-function getFileIcon(mimeType: string | null) {
-  if (!mimeType) return FileText;
-  if (mimeType.startsWith('image/')) return FileImage;
-  if (mimeType.includes('spreadsheet') || mimeType.includes('sheet')) return FileSpreadsheet;
-  if (mimeType.includes('json') || mimeType.includes('javascript') || mimeType.includes('text')) return FileCode;
+function effectiveMimeType(name: string, mimeType: string | null) {
+  const declared = mimeType?.trim();
+  if (declared && declared !== 'application/octet-stream' && declared !== 'binary/octet-stream') return declared;
+  const extension = name.toLowerCase().split('.').pop() ?? '';
+  const byExtension: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', svg: 'image/svg+xml', pdf: 'application/pdf', json: 'application/json', csv: 'text/csv', txt: 'text/plain', md: 'text/markdown', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', zip: 'application/zip' };
+  return byExtension[extension] ?? declared ?? 'application/octet-stream';
+}
+
+function getFileIcon(name: string, mimeType: string | null) {
+  const effective = effectiveMimeType(name, mimeType);
+  if (effective.startsWith('image/')) return FileImage;
+  if (effective.includes('spreadsheet') || effective.includes('sheet')) return FileSpreadsheet;
+  if (effective.includes('json') || effective.includes('javascript') || effective.includes('text')) return FileCode;
   return FileText;
 }
 
-function getFileType(mimeType: string | null): string {
-  if (!mimeType) return 'File';
-  if (mimeType.startsWith('image/')) return 'Image';
-  if (mimeType.includes('pdf')) return 'PDF';
-  if (mimeType.includes('spreadsheet') || mimeType.includes('sheet')) return 'Sheet';
-  if (mimeType.includes('document') || mimeType.includes('word')) return 'Document';
-  if (mimeType.includes('json') || mimeType.includes('javascript')) return 'Code';
+function getFileType(name: string, mimeType: string | null): string {
+  const effective = effectiveMimeType(name, mimeType);
+  if (effective.startsWith('image/')) return 'Image';
+  if (effective.includes('video')) return 'Video';
+  if (effective.includes('audio')) return 'Audio';
+  if (effective.includes('pdf')) return 'PDF';
+  if (effective.includes('spreadsheet') || effective.includes('sheet')) return 'Sheet';
+  if (effective.includes('document') || effective.includes('word')) return 'Document';
+  if (effective.includes('presentation') || effective.includes('powerpoint')) return 'Presentation';
+  if (effective.includes('archive') || effective.includes('zip') || effective.includes('rar')) return 'Archive';
+  if (effective.includes('json') || effective.includes('javascript') || effective.includes('text')) return 'Text / Code';
   return 'File';
 }
 

@@ -16,7 +16,8 @@ const ShareDialog: FC<{
   targetName?: string;
   open: boolean;
   onClose: () => void;
-}> = ({ fileId, folderId, targetName, open, onClose }) => {
+  onCreated?: (url: string) => void;
+}> = ({ fileId, folderId, targetName, open, onClose, onCreated }) => {
   const qc = useQueryClient();
   const [perm, setPerm] = useState<SharePermission>('VIEW');
   const [description, setDescription] = useState('');
@@ -42,14 +43,16 @@ const ShareDialog: FC<{
         ? await createShareLink(fileId, perm, description)
         : await createFolderShareLink(folderId as string, perm, description);
       if (!link.publicToken) throw new Error('Token link tidak diterima dari server.');
-      setUrl(`${window.location.origin}${sharePageUrl(link.publicToken)}`);
+      const nextUrl = `${window.location.origin}${sharePageUrl(link.publicToken)}`;
+      setUrl(nextUrl);
+      onCreated?.(nextUrl);
       qc.invalidateQueries({ queryKey: ['share-links'] });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Link gagal dibuat.');
     } finally {
       setLoading(false);
     }
-  }, [fileId, folderId, perm, description, qc]);
+  }, [fileId, folderId, perm, description, qc, onCreated]);
 
   const copy = useCallback(async () => {
     if (!url) return;

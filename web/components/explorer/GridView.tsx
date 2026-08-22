@@ -101,7 +101,7 @@ const GridView: FC<{
 
       {files.map((f) => {
         const selected = selection.includes(f.id);
-        const Icon = getFileIcon(f.mimeType);
+        const Icon = getFileIcon(f.name, f.mimeType);
         return (
           <motion.div
             key={f.id}
@@ -163,7 +163,7 @@ const FileThumbnail: FC<{ file: FileItem; fallback: React.ReactNode }> = ({ file
   const [src, setSrc] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!file.mimeType?.startsWith('image/')) return;
+    if (!effectiveMimeType(file.name, file.mimeType).startsWith('image/')) return;
     let mounted = true;
     let objectUrl: string | null = null;
     api.get(`/files/${file.id}/stream`, { responseType: 'blob' })
@@ -177,7 +177,7 @@ const FileThumbnail: FC<{ file: FileItem; fallback: React.ReactNode }> = ({ file
       mounted = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [file.id, file.mimeType]);
+  }, [file.id, file.name, file.mimeType]);
 
   return (
     <div className="mb-3 flex h-32 items-center justify-center overflow-hidden rounded-md bg-surface-active">
@@ -189,11 +189,19 @@ const FileThumbnail: FC<{ file: FileItem; fallback: React.ReactNode }> = ({ file
   );
 };
 
-function getFileIcon(mimeType: string | null) {
-  if (!mimeType) return FileText;
-  if (mimeType.startsWith('image/')) return FileImage;
-  if (mimeType.includes('spreadsheet') || mimeType.includes('sheet')) return FileSpreadsheet;
-  if (mimeType.includes('json') || mimeType.includes('javascript') || mimeType.includes('text')) return FileCode;
+function effectiveMimeType(name: string, mimeType: string | null) {
+  const declared = mimeType?.trim();
+  if (declared && declared !== 'application/octet-stream' && declared !== 'binary/octet-stream') return declared;
+  const extension = name.toLowerCase().split('.').pop() ?? '';
+  const byExtension: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', svg: 'image/svg+xml', mp4: 'video/mp4', mp3: 'audio/mpeg', pdf: 'application/pdf', json: 'application/json', csv: 'text/csv', txt: 'text/plain', md: 'text/markdown', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', zip: 'application/zip' };
+  return byExtension[extension] ?? declared ?? 'application/octet-stream';
+}
+
+function getFileIcon(name: string, mimeType: string | null) {
+  const effective = effectiveMimeType(name, mimeType);
+  if (effective.startsWith('image/')) return FileImage;
+  if (effective.includes('spreadsheet') || effective.includes('sheet')) return FileSpreadsheet;
+  if (effective.includes('json') || effective.includes('javascript') || effective.includes('text')) return FileCode;
   return FileText;
 }
 

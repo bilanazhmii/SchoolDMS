@@ -38,7 +38,7 @@ const FilePreviewPanel: FC<{ file?: FileItem | null }> = ({ file }) => {
   if (!file) return <div className="p-4 text-sm text-foreground-muted">No file selected</div>;
 
   const fileName = file.name;
-  const mime = file.mimeType ?? 'application/octet-stream';
+  const mime = effectiveMimeType(fileName, file.mimeType);
   const isImage = mime.startsWith('image/');
   const isVideo = mime.startsWith('video/');
   const isAudio = mime.startsWith('audio/');
@@ -91,9 +91,9 @@ const FilePreviewPanel: FC<{ file?: FileItem | null }> = ({ file }) => {
         </div>
       )}
 
-      {url && canRender && (
-        <div className="flex gap-2">
-          <button type="button" onClick={() => setFullScreen(true)} className="rounded border border-border px-3 py-1.5 text-xs hover:bg-surface-hover">Buka penuh</button>
+      {url && (
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => canRender ? setFullScreen(true) : download()} className="rounded bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:bg-primary-hover">Lihat</button>
           <button type="button" onClick={download} className="rounded border border-border px-3 py-1.5 text-xs hover:bg-surface-hover">Download</button>
         </div>
       )}
@@ -107,5 +107,13 @@ const FilePreviewPanel: FC<{ file?: FileItem | null }> = ({ file }) => {
     </div>
   );
 };
+
+function effectiveMimeType(name: string, mimeType: string | null) {
+  const declared = mimeType?.trim();
+  if (declared && declared !== 'application/octet-stream' && declared !== 'binary/octet-stream') return declared;
+  const extension = name.toLowerCase().split('.').pop() ?? '';
+  const byExtension: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', svg: 'image/svg+xml', mp4: 'video/mp4', webm: 'video/webm', mp3: 'audio/mpeg', wav: 'audio/wav', pdf: 'application/pdf', txt: 'text/plain', csv: 'text/csv', json: 'application/json', xml: 'application/xml', md: 'text/markdown' };
+  return byExtension[extension] ?? declared ?? 'application/octet-stream';
+}
 
 export default FilePreviewPanel;

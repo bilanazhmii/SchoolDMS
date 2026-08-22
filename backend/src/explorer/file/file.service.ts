@@ -56,6 +56,14 @@ export class FileService {
     return { ...file, size: Number(file.size) };
   }
 
+  private effectiveMimeType(name: string, mimeType: string | null | undefined, versionMimeType?: string | null) {
+    const declared = versionMimeType?.trim() || mimeType?.trim();
+    if (declared && declared !== 'application/octet-stream' && declared !== 'binary/octet-stream') return declared;
+    const extension = name.toLowerCase().split('.').pop() ?? '';
+    const byExtension: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', svg: 'image/svg+xml', mp4: 'video/mp4', webm: 'video/webm', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', pdf: 'application/pdf', txt: 'text/plain', csv: 'text/csv', json: 'application/json', xml: 'application/xml', md: 'text/markdown', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', zip: 'application/zip' };
+    return byExtension[extension] ?? declared ?? 'application/octet-stream';
+  }
+
   private async emitRemoteChange(profileId: string, change: Parameters<SyncStatusService['emitRemoteChange']>[1]) {
     try {
       await this.sync.emitRemoteChange(profileId, change);
@@ -782,7 +790,7 @@ export class FileService {
         drive: true,
         buffer,
         fileName: file.name,
-        mimeType: file.mimeType,
+        mimeType: this.effectiveMimeType(file.name, file.mimeType, latestVersion.mimeType),
       };
     }
 
@@ -794,7 +802,7 @@ export class FileService {
       drive: false,
       buffer,
       fileName: file.name,
-      mimeType: file.mimeType,
+            mimeType: this.effectiveMimeType(file.name, file.mimeType, latestVersion.mimeType),
     };
   }
 
@@ -851,7 +859,7 @@ export class FileService {
         drive: true,
         stream: Readable.from(buffer),
         fileName: file.name,
-        mimeType: file.mimeType,
+        mimeType: this.effectiveMimeType(file.name, file.mimeType, latestVersion.mimeType),
       };
     }
 
@@ -863,7 +871,7 @@ export class FileService {
       drive: false,
       stream,
       fileName: file.name,
-      mimeType: file.mimeType,
+      mimeType: this.effectiveMimeType(file.name, file.mimeType, latestVersion.mimeType),
     };
   }
 }
