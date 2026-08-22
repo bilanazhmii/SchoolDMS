@@ -17,8 +17,9 @@ export async function POST(req: NextRequest) {
 
   const c = cookies();
   const isProd = process.env.NODE_ENV === 'production';
-  c.set({ name: 'sb_access_token', value: access_token, httpOnly: true, secure: isProd, path: '/', maxAge: accessMaxAge, sameSite: 'lax' });
-  c.set({ name: 'sb_refresh_token', value: refresh_token, httpOnly: true, secure: isProd, path: '/', maxAge: refreshMaxAge, sameSite: 'lax' });
+    c.set({ name: 'sb_access_token', value: access_token, httpOnly: true, secure: isProd, path: '/', maxAge: accessMaxAge, sameSite: 'lax', priority: 'high' });
+  c.set({ name: 'sb_refresh_token', value: refresh_token, httpOnly: true, secure: isProd, path: '/', maxAge: refreshMaxAge, sameSite: 'lax', priority: 'high' });
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true }, { headers: { 'Cache-Control': 'no-store' } });
+
 }

@@ -225,6 +225,8 @@ model DriveAccount {
   connectionStatus    ConnectionStatus @default(CONNECTED)
   connectedAt         DateTime?
   disconnectedAt      DateTime?
+  oauthStateHash      String?          @db.VarChar(128)
+  oauthStateExpiresAt DateTime?
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
 

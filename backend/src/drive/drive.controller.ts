@@ -16,8 +16,8 @@ export class DriveController {
 
   @UseGuards(JwtAuthGuard)
   @Get('connect')
-  connect(@CurrentUser() user: AuthenticatedProfile, @Res() res: Response) {
-    const url = this.driveService.getAuthUrl(user);
+  async connect(@CurrentUser() user: AuthenticatedProfile, @Res() res: Response) {
+    const url = await this.driveService.getAuthUrl(user);
     return res.redirect(url);
   }
 

@@ -7,10 +7,22 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon>Assets\schooldms-mark.ico</ApplicationIcon>
+    <AssemblyName>SchoolDMS.Sync</AssemblyName>
+    <Product>SchoolDMS Sync Client</Product>
+    <Description>Secure multi-device document synchronization for SchoolDMS.</Description>
+    <Company>SchoolDMS</Company>
+    <Version>1.0.0</Version>
   </PropertyGroup>
+
+    <ItemGroup>
+    <Resource Include="Assets\schooldms-mark.png" />
+    <Resource Include="Assets\schooldms-mark.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\Core\DocumentSyncClient.Core\DocumentSyncClient.Core.csproj" />
+
     <ProjectReference Include="..\..\Infrastructure\DocumentSyncClient.Infrastructure\DocumentSyncClient.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Features\DocumentSyncClient.Features\DocumentSyncClient.Features.csproj" />
   </ItemGroup>

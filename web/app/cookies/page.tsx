@@ -1,0 +1,19 @@
+import Link from 'next/link';
+
+export const metadata = { title: 'Kebijakan Cookie' };
+
+export default function CookiesPage() {
+  return (
+    <main className="min-h-screen bg-background px-4 py-12 text-foreground sm:px-6">
+      <article className="mx-auto max-w-3xl space-y-8 rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-10">
+        <header><p className="text-sm font-medium text-primary">SchoolDMS</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">Kebijakan Cookie</h1><p className="mt-2 text-sm text-foreground-muted">Versi 1.0 · Terakhir diperbarui 22 Agustus 2026</p></header>
+        <section className="space-y-3"><h2 className="text-lg font-semibold">Apa itu cookie?</h2><p>Cookie adalah data kecil yang disimpan browser untuk menjaga sesi, keamanan, dan pilihan pengguna. SchoolDMS hanya menggunakan cookie yang diperlukan agar autentikasi web dapat berjalan dan cookie preferensi untuk mengingat pilihan cookie Anda.</p></section>
+        <section className="space-y-3"><h2 className="text-lg font-semibold">Cookie yang digunakan</h2><div className="overflow-x-auto"><table className="w-full min-w-[620px] border-collapse text-left text-sm"><thead><tr className="border-b border-border"><th className="px-3 py-2 font-semibold">Nama</th><th className="px-3 py-2 font-semibold">Tujuan</th><th className="px-3 py-2 font-semibold">Kategori</th><th className="px-3 py-2 font-semibold">Masa simpan</th></tr></thead><tbody><tr className="border-b border-border-subtle"><td className="px-3 py-2 font-mono text-xs">sb_access_token</td><td className="px-3 py-2">Menjaga sesi login dan meneruskan akses terautentikasi.</td><td className="px-3 py-2">Essential</td><td className="px-3 py-2">Sesuai masa berlaku token</td></tr><tr className="border-b border-border-subtle"><td className="px-3 py-2 font-mono text-xs">sb_refresh_token</td><td className="px-3 py-2">Memperbarui sesi login tanpa meminta login berulang.</td><td className="px-3 py-2">Essential</td><td className="px-3 py-2">30 hari</td></tr><tr><td className="px-3 py-2 font-mono text-xs">schooldms_cookie_consent</td><td className="px-3 py-2">Mengingat pilihan cookie banner Anda.</td><td className="px-3 py-2">Preference</td><td className="px-3 py-2">1 tahun</td></tr></tbody></table></div></section>
+        <section className="space-y-3"><h2 className="text-lg font-semibold">Keamanan cookie</h2><p>Cookie autentikasi diset sebagai HttpOnly sehingga tidak dapat dibaca JavaScript halaman, Secure pada production sehingga hanya dikirim melalui HTTPS, SameSite=Lax untuk mengurangi risiko pengiriman lintas situs, dan tidak disimpan di cache. Token Google Drive tidak disimpan di cookie browser; token tersebut disimpan terenkripsi di backend.</p></section>
+        <section className="space-y-3"><h2 className="text-lg font-semibold">Pilihan Anda</h2><p>Cookie essential tidak dapat dimatikan dari banner karena login dan operasi sinkronisasi membutuhkan cookie tersebut. Cookie preference dapat dihapus melalui pengaturan browser. Menghapus cookie dapat menyebabkan banner muncul kembali dan Anda mungkin perlu login ulang.</p></section>
+        <section className="space-y-3"><h2 className="text-lg font-semibold">Hubungan dengan sinkronisasi Drive</h2><p>Cookie web tidak membawa token Google Drive dan tidak menentukan file mana yang disinkronkan. Koneksi Drive menggunakan OAuth melalui backend dengan state yang ditandatangani dan kadaluarsa. Target desktop, Device ID, checksum, dan queue sinkronisasi dikelola oleh aplikasi desktop dan backend.</p></section>
+        <footer className="border-t border-border pt-5 text-sm text-foreground-muted"><Link href="/privacy" className="text-primary hover:underline">Lihat Kebijakan Privasi</Link><span className="mx-2">·</span><Link href="/" className="text-primary hover:underline">Kembali ke SchoolDMS</Link></footer>
+      </article>
+    </main>
+  );
+}

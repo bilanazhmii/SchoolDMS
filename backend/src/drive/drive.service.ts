@@ -42,7 +42,9 @@ export class DriveService implements OnModuleInit {
   private readonly clientId: string;
   private readonly clientSecret: string;
   private readonly redirectUri: string;
-  private readonly encryptionKey: Buffer | null;
+    private readonly encryptionKey: Buffer | null;
+  private readonly oauthStateSecret: Buffer;
+
   private timer: NodeJS.Timeout | null = null;
   private pulling = false;
 
@@ -63,6 +65,8 @@ export class DriveService implements OnModuleInit {
     this.encryptionKey = rawKey
       ? crypto.createHash('sha256').update(String(rawKey)).digest()
       : null;
+    const oauthStateKey = this.config.get<string>('DRIVE_OAUTH_STATE_SECRET') ?? rawKey ?? 'schooldms-oauth-state-change-me';
+    this.oauthStateSecret = crypto.createHash('sha256').update(String(oauthStateKey)).digest();
 
     if (!this.isConfigured()) {
       this.logger.warn(
@@ -198,9 +202,10 @@ export class DriveService implements OnModuleInit {
     );
   }
 
-  getAuthUrl(profile: AuthenticatedProfile) {
+    async getAuthUrl(profile: AuthenticatedProfile) {
     this.requireConfigured();
     const oauth2 = this.createOAuthClient();
+
     const scopes = [
       'openid',
       'profile',
@@ -208,9 +213,20 @@ export class DriveService implements OnModuleInit {
       'https://www.googleapis.com/auth/drive',
     ];
 
-    const state = Buffer.from(profile.id).toString('base64');
+        const payload = Buffer.from(JSON.stringify({ profileId: profile.id, issuedAt: Date.now(), nonce: crypto.randomBytes(16).toString('hex') })).toString('base64url');
+    const signature = crypto.createHmac('sha256', this.oauthStateSecret).update(payload).digest('base64url');
+    const state = `${payload}.${signature}`;
+    const stateHash = crypto.createHash('sha256').update(state).digest('hex');
+    const stateExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    const existing = await this.prisma.driveAccount.findFirst({ where: { profileId: profile.id } });
+    if (existing) {
+      await this.prisma.driveAccount.update({ where: { id: existing.id }, data: { oauthStateHash: stateHash, oauthStateExpiresAt: stateExpiresAt } });
+    } else {
+      await this.prisma.driveAccount.create({ data: { profileId: profile.id, googleUserId: `pending-${crypto.randomUUID()}`, email: profile.email, connectionStatus: 'DISCONNECTED', oauthStateHash: stateHash, oauthStateExpiresAt: stateExpiresAt } });
+    }
 
     return oauth2.generateAuthUrl({
+
       access_type: 'offline',
       prompt: 'consent',
       scope: scopes,
@@ -250,12 +266,11 @@ export class DriveService implements OnModuleInit {
     return decrypted.toString('utf8');
   }
 
-  async handleOAuthCallback(code: string, state: string) {
+    async handleOAuthCallback(code: string, state: string) {
+    const profileId = await this.consumeOAuthState(state);
     const oauth2 = this.createOAuthClient();
     const { tokens } = await oauth2.getToken(code);
 
-    // state contains base64(profileId)
-    const profileId = Buffer.from(state, 'base64').toString('utf8');
     const profile = await this.prisma.profile.findUnique({
       where: { id: profileId },
     });
@@ -313,7 +328,34 @@ export class DriveService implements OnModuleInit {
     return { success: true };
   }
 
+    private async consumeOAuthState(state: string): Promise<string> {
+    const separator = state.lastIndexOf('.');
+    if (separator <= 0) throw new Error('Invalid OAuth state');
+    const payload = state.slice(0, separator);
+    const signature = state.slice(separator + 1);
+    const expected = crypto.createHmac('sha256', this.oauthStateSecret).update(payload).digest('base64url');
+    const validSignature = signature.length === expected.length && crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+    if (!validSignature) throw new Error('Invalid OAuth state signature');
+
+    let decoded: { profileId?: string; issuedAt?: number };
+    try {
+      decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { profileId?: string; issuedAt?: number };
+    } catch {
+      throw new Error('Invalid OAuth state payload');
+    }
+    if (!decoded.profileId || !decoded.issuedAt || Date.now() - decoded.issuedAt > 10 * 60 * 1000 || decoded.issuedAt > Date.now() + 60_000) {
+      throw new Error('Expired OAuth state');
+    }
+
+    const stateHash = crypto.createHash('sha256').update(state).digest('hex');
+    const account = await this.prisma.driveAccount.findFirst({ where: { profileId: decoded.profileId, oauthStateHash: stateHash } });
+    if (!account || !account.oauthStateExpiresAt || account.oauthStateExpiresAt.getTime() < Date.now()) throw new Error('OAuth state was not issued for this profile or has expired');
+    await this.prisma.driveAccount.update({ where: { id: account.id }, data: { oauthStateHash: null, oauthStateExpiresAt: null } });
+    return decoded.profileId;
+  }
+
   private async getRefreshTokenForProfile(profileId: string) {
+
     const account = await this.prisma.driveAccount.findFirst({
       where: { profileId },
     });

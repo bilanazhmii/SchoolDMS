@@ -5,6 +5,7 @@ import { ReactNode, useEffect, useState } from 'react';
 import AuthProvider from './auth-provider';
 import ReactQueryProvider from './react-query-provider';
 import SessionProvider from './session-provider';
+import CookieConsent from '../components/cookie-consent';
 import ThemeProviders from './theme-provider';
 
 /**
@@ -21,6 +22,7 @@ export default function Providers({ children }: { children: ReactNode }) {
       <AuthProvider>
         <SessionProvider>
           <ReactQueryProvider>{mounted ? children : null}</ReactQueryProvider>
+          <CookieConsent />
         </SessionProvider>
       </AuthProvider>
     </ThemeProviders>

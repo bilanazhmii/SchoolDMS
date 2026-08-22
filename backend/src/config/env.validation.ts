@@ -12,6 +12,7 @@ export interface EnvironmentVariables {
   GOOGLE_DRIVE_CLIENT_SECRET?: string;
   GOOGLE_DRIVE_REDIRECT_URI?: string;
   DRIVE_TOKEN_ENCRYPTION_KEY?: string;
+  DRIVE_OAUTH_STATE_SECRET?: string;
   WEB_APP_URL?: string;
 }
 
@@ -54,11 +55,16 @@ export function validateEnv(
       typeof config.GOOGLE_DRIVE_REDIRECT_URI === 'string'
         ? config.GOOGLE_DRIVE_REDIRECT_URI.trim()
         : undefined,
-    DRIVE_TOKEN_ENCRYPTION_KEY:
+        DRIVE_TOKEN_ENCRYPTION_KEY:
       typeof config.DRIVE_TOKEN_ENCRYPTION_KEY === 'string'
         ? config.DRIVE_TOKEN_ENCRYPTION_KEY.trim()
         : undefined,
+    DRIVE_OAUTH_STATE_SECRET:
+      typeof config.DRIVE_OAUTH_STATE_SECRET === 'string'
+        ? config.DRIVE_OAUTH_STATE_SECRET.trim()
+        : undefined,
     WEB_APP_URL:
+
       typeof config.WEB_APP_URL === 'string'
         ? config.WEB_APP_URL.trim()
         : undefined,
@@ -76,11 +82,30 @@ export function validateEnv(
     );
   }
 
-  if (!cleaned.SUPABASE_SERVICE_ROLE_KEY) {
+    if (!cleaned.SUPABASE_SERVICE_ROLE_KEY) {
     throw new Error(
       'Environment validation failed: SUPABASE_SERVICE_ROLE_KEY must be defined',
     );
   }
 
+  const driveConfig = [
+    cleaned.GOOGLE_DRIVE_CLIENT_ID,
+    cleaned.GOOGLE_DRIVE_CLIENT_SECRET,
+    cleaned.GOOGLE_DRIVE_REDIRECT_URI,
+    cleaned.DRIVE_TOKEN_ENCRYPTION_KEY,
+    cleaned.DRIVE_OAUTH_STATE_SECRET,
+  ];
+  if (driveConfig.some(Boolean) && driveConfig.some((value) => !value)) {
+    throw new Error(
+      'Environment validation failed: Google Drive requires client ID, client secret, redirect URI, token encryption key, and OAuth state secret together',
+    );
+  }
+  if (cleaned.DRIVE_OAUTH_STATE_SECRET && cleaned.DRIVE_OAUTH_STATE_SECRET.length < 32) {
+    throw new Error(
+      'Environment validation failed: DRIVE_OAUTH_STATE_SECRET must be at least 32 characters',
+    );
+  }
+
   return cleaned;
+
 }

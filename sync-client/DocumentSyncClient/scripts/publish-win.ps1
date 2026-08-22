@@ -53,5 +53,6 @@ if ($publishExitCode -ne 0) {
 }
 
 Write-Host ""
-Write-Host "Selesai! Jalankan: $output\DocumentSyncClient.App.exe" -ForegroundColor Green
+Write-Host "Selesai! Jalankan: $output\SchoolDMS.Sync.exe" -ForegroundColor Green
+
 Write-Host "Sekitar 100-200 MB (self-contained .NET + SQLite native)." -ForegroundColor Yellow

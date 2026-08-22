@@ -2,6 +2,7 @@
 
 import { FC } from 'react';
 
+import Image from 'next/image';
 import Link from 'next/link';
 
 import DriveStatus from './drive-status';
@@ -19,7 +20,10 @@ const Navbar: FC = () => {
           <div className="flex items-center gap-4">
             <MobileNav />
             <Link href="/" className="flex items-center gap-3">
-              <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center text-white font-semibold">S</div>
+                            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl bg-slate-950 ring-1 ring-slate-200">
+                <Image src="/schooldms-mark.png" alt="SchoolDMS" width={36} height={36} className="h-9 w-9 object-contain" priority />
+              </div>
+
               <div className="hidden sm:block">
                 <div className="text-sm font-semibold">SchoolDMS</div>
                 <div className="text-xs text-muted-foreground">Enterprise Document Management</div>
