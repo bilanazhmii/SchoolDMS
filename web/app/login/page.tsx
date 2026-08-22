@@ -12,7 +12,6 @@ import { Download, Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../providers/auth-provider';
 import { getAuthRedirectUrl } from '../../lib/auth-url';
-import { downloadWindowsClient } from '../../lib/download-client';
 
 const loginSchema = z.object({
   email: z.string().email('Masukkan email yang sah'),
@@ -315,11 +314,8 @@ export default function LoginPage() {
         <a
           href={WINDOWS_CLIENT_DOWNLOAD_URL}
           download="SchoolDMS-Sync-win-x64.zip"
-          onClick={(event) => {
-            event.preventDefault();
-            void downloadWindowsClient(WINDOWS_CLIENT_DOWNLOAD_URL).catch(() => undefined);
-          }}
-          className="mt-5 flex items-center justify-center gap-2 rounded-md border border-border bg-card px-3 py-2.5 text-sm font-medium text-foreground-muted transition-colors hover:bg-surface-hover hover:text-foreground"
+          aria-label="Download SchoolDMS Windows Sync Client"
+          className="relative z-10 mt-5 flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-md border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground-muted transition-colors hover:bg-surface-hover hover:text-foreground"
         >
           <Download className="h-4 w-4" />
           Unduh Windows Sync Client

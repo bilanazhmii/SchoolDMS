@@ -23,7 +23,6 @@ import DashboardShell from '../../components/dashboard-shell';
 import api from '../../lib/axios';
 import { fetchFolderContents } from '../../services/explorer';
 import type { FileItem } from '../../types/explorer';
-import { downloadWindowsClient } from '../../lib/download-client';
 
 const WINDOWS_CLIENT_DOWNLOAD_URL = 'https://github.com/bilanazhmii/SchoolDMS/raw/client-download/SchoolDMS-Sync-win-x64.zip';
 
@@ -85,11 +84,8 @@ export default function Page() {
             <a
               href={WINDOWS_CLIENT_DOWNLOAD_URL}
               download="SchoolDMS-Sync-win-x64.zip"
-              onClick={(event) => {
-                event.preventDefault();
-                void downloadWindowsClient(WINDOWS_CLIENT_DOWNLOAD_URL).catch(() => undefined);
-              }}
-              className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground-muted hover:bg-surface-hover hover:text-foreground transition-colors"
+              aria-label="Download SchoolDMS Windows Sync Client"
+              className="relative z-10 inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-sm font-medium text-foreground-muted transition-colors hover:bg-surface-hover hover:text-foreground"
             >
               <Download className="h-4 w-4" />
               Download Windows Client

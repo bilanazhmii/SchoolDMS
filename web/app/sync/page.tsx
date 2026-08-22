@@ -5,7 +5,6 @@ import { useQuery } from '@tanstack/react-query';
 import { CheckCircle2, Computer, Download, Folder, FolderSync, HardDrive, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import DashboardShell from '../../components/dashboard-shell';
 import { getSyncStatus, type SyncDevice } from '../../services/sync';
-import { downloadWindowsClient } from '../../lib/download-client';
 
 const WINDOWS_CLIENT_DOWNLOAD_URL = 'https://github.com/bilanazhmii/SchoolDMS/raw/client-download/SchoolDMS-Sync-win-x64.zip';
 
@@ -76,11 +75,8 @@ export default function SyncPage() {
             <a
               href={WINDOWS_CLIENT_DOWNLOAD_URL}
               download="SchoolDMS-Sync-win-x64.zip"
-              onClick={(event) => {
-                event.preventDefault();
-                void downloadWindowsClient(WINDOWS_CLIENT_DOWNLOAD_URL).catch(() => undefined);
-              }}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover"
+              aria-label="Download SchoolDMS Windows Sync Client"
+              className="relative z-10 inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover"
             >
               <Download className="h-4 w-4" />Download Windows Client
             </a>
