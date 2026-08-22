@@ -101,12 +101,26 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
     public async Task QueueFolderChangeAsync(string path, SyncOperationType operation, string? oldPath = null, CancellationToken cancellationToken = default)
     {
         var settings = await _settingsService.LoadAsync(cancellationToken);
+        var relativePath = BuildRelativePath(path, settings);
+        if (relativePath is null)
+        {
+            _logger.LogWarning("Ignoring folder change outside the configured head folder: {Path}", path);
+            return;
+        }
+
+        var oldRelativePath = oldPath is null ? null : BuildRelativePath(oldPath, settings);
+        if (operation is SyncOperationType.Rename or SyncOperationType.Move && oldPath is not null && oldRelativePath is null)
+        {
+            _logger.LogWarning("Ignoring folder move outside the configured head folder: {Path}", oldPath);
+            return;
+        }
+
         var job = new SyncJob
         {
             FilePath = path,
-            RelativePath = BuildRelativePath(path, settings),
+            RelativePath = relativePath,
             Operation = operation,
-            Payload = JsonSerializer.Serialize(new { folder = true, oldRelativePath = oldPath is null ? null : BuildRelativePath(oldPath, settings) }),
+            Payload = JsonSerializer.Serialize(new { folder = true, oldRelativePath }),
             NextAttemptAt = DateTimeOffset.UtcNow,
         };
         await _queue.EnqueueAsync(job, cancellationToken);
@@ -115,53 +129,85 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
     public async Task QueueFileChangeAsync(string path, SyncOperationType operation, string? payload = null, CancellationToken cancellationToken = default)
     {
         var settings = await _settingsService.LoadAsync(cancellationToken);
+        var relativePath = BuildRelativePath(path, settings);
+        if (relativePath is null)
+        {
+            _logger.LogWarning("Ignoring file change outside the configured head folder: {Path}", path);
+            return;
+        }
+
+        var renamePayload = operation == SyncOperationType.Rename && !string.IsNullOrWhiteSpace(payload)
+            ? BuildRelativePath(payload, settings)
+            : payload;
+        if (operation == SyncOperationType.Rename && !string.IsNullOrWhiteSpace(payload) && renamePayload is null)
+        {
+            _logger.LogWarning("Ignoring file rename whose old path is outside the configured head folder: {Path}", payload);
+            return;
+        }
+
         var job = new SyncJob
         {
             FilePath = path,
-            RelativePath = BuildRelativePath(path, settings),
+            RelativePath = relativePath,
             Operation = operation,
-            Payload = operation == SyncOperationType.Rename && !string.IsNullOrWhiteSpace(payload)
-                ? BuildRelativePath(payload, settings)
-                : payload,
+            Payload = renamePayload,
             NextAttemptAt = DateTimeOffset.UtcNow
         };
 
         await _queue.EnqueueAsync(job, cancellationToken);
     }
 
-    private static string BuildRelativePath(string filePath, AppSettings settings)
+    private static string? BuildRelativePath(string filePath, AppSettings settings)
     {
-        var roots = new[] { settings.SyncFolder }
-            .Concat(settings.SyncFolders ?? [])
-            .Where(p => !string.IsNullOrWhiteSpace(p))
-            .Distinct(StringComparer.OrdinalIgnoreCase);
-        foreach (var root in roots)
-        {
-            var fullRoot = Path.GetFullPath(root);
-            var fullFile = Path.GetFullPath(filePath);
-            if (!fullFile.StartsWith(fullRoot.TrimEnd('\\') + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(fullFile, fullRoot, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-            var rootName = Path.GetFileName(fullRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-            var inside = Path.GetRelativePath(fullRoot, fullFile).Replace('\\', '/');
-            return string.IsNullOrWhiteSpace(rootName) ? inside : $"{rootName}/{inside}";
-        }
-        return Path.GetFileName(filePath);
+        if (string.IsNullOrWhiteSpace(filePath) || string.IsNullOrWhiteSpace(settings.SyncFolder)) return null;
+
+        var fullRoot = NormalizePath(settings.SyncFolder);
+        var fullFile = NormalizePath(filePath);
+        if (!IsPathWithinRoot(fullFile, fullRoot, allowRoot: true)) return null;
+
+        var rootName = Path.GetFileName(fullRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        var inside = Path.GetRelativePath(fullRoot, fullFile).Replace('\\', '/');
+        return string.IsNullOrWhiteSpace(rootName) || inside == "." ? rootName : $"{rootName}/{inside}";
+    }
+
+    private static string NormalizePath(string path) => Path.GetFullPath(path.Trim());
+
+    private static bool IsPathWithinRoot(string path, string root, bool allowRoot)
+    {
+        if (string.Equals(path, root, StringComparison.OrdinalIgnoreCase)) return allowRoot;
+        var rootPrefix = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        return path.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <inheritdoc />
-    public async Task SyncFolderAsync(string rootPath, CancellationToken cancellationToken = default)
+        public async Task SyncFolderAsync(string rootPath, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(rootPath) || !Directory.Exists(rootPath))
+        var settings = await _settingsService.LoadAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(rootPath) || string.IsNullOrWhiteSpace(settings.SyncFolder) || !Directory.Exists(rootPath))
         {
             return;
         }
 
-        var files = Directory.EnumerateFiles(rootPath, "*", SearchOption.AllDirectories).ToArray();
-        var directories = Directory.EnumerateDirectories(rootPath, "*", SearchOption.AllDirectories).ToArray();
-        var folderPaths = new[] { rootPath }.Concat(directories).ToArray();
+                var configuredRoot = NormalizePath(settings.SyncFolder);
+        var requestedRoot = NormalizePath(rootPath);
+        if (string.Equals(Path.GetPathRoot(configuredRoot), configuredRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("Ignoring drive-root sync target {Root}; choose a folder below the drive root.", configuredRoot);
+            return;
+        }
+
+        if (!IsPathWithinRoot(requestedRoot, configuredRoot, allowRoot: true))
+
+        {
+            _logger.LogWarning("Ignoring initial sync request outside the configured head folder: {Path}", rootPath);
+            return;
+        }
+
+        var files = Directory.EnumerateFiles(requestedRoot, "*", SearchOption.AllDirectories).ToArray();
+        var directories = Directory.EnumerateDirectories(requestedRoot, "*", SearchOption.AllDirectories).ToArray();
+        var folderPaths = new[] { requestedRoot }.Concat(directories).ToArray();
+
+
         var queued = 0;
 
         // Folder creation is queued as a durable job. A one-shot HTTP call here
@@ -174,12 +220,13 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
 
         foreach (var file in files)
         {
-            var settings = await _settingsService.LoadAsync(cancellationToken);
-            var relative = BuildRelativePath(file, settings);
+                        var relative = BuildRelativePath(file, settings);
+            if (relative is null) continue;
             var job = new SyncJob
             {
                 FilePath = file,
                 RelativePath = relative,
+
                 Operation = SyncOperationType.Create,
                 NextAttemptAt = DateTimeOffset.UtcNow
             };
@@ -370,8 +417,15 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
 
     private async Task ProcessJobAsync(SyncJob job, CancellationToken cancellationToken)
     {
-        var settings = await _settingsService.LoadAsync(cancellationToken);
+                var settings = await _settingsService.LoadAsync(cancellationToken);
+        if (!IsJobInsideConfiguredRoot(job, settings))
+        {
+            _logger.LogWarning("Discarding stale sync job outside the configured head folder: {Path}", job.FilePath);
+            return;
+        }
+
         var baseUrl = string.IsNullOrWhiteSpace(settings.ServerUrl)
+
             ? DefaultServerUrl
             : settings.ServerUrl.TrimEnd('/');
 
@@ -701,20 +755,24 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
 
     private static string? ResolveLocalPath(AppSettings settings, string? relativePath)
     {
-        if (string.IsNullOrWhiteSpace(relativePath)) return null;
+        if (string.IsNullOrWhiteSpace(relativePath) || string.IsNullOrWhiteSpace(settings.SyncFolder)) return null;
         var normalized = relativePath.Replace('\\', '/').Trim('/');
         var parts = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        var roots = new[] { settings.SyncFolder }.Concat(settings.SyncFolders ?? [])
-            .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path));
-        foreach (var root in roots)
-        {
-            var rootFull = Path.GetFullPath(root);
-            var rootName = Path.GetFileName(rootFull.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-            var start = parts.Length > 0 && string.Equals(parts[0], rootName, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
-            var candidate = Path.GetFullPath(Path.Combine(new[] { rootFull }.Concat(parts.Skip(start).ToArray()).ToArray()));
-            if (candidate.Equals(rootFull, StringComparison.OrdinalIgnoreCase) || candidate.StartsWith(rootFull.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return candidate;
-        }
-        return null;
+        var rootFull = NormalizePath(settings.SyncFolder);
+        var rootName = Path.GetFileName(rootFull.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        var start = parts.Length > 0 && string.Equals(parts[0], rootName, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        var candidate = NormalizePath(Path.Combine(new[] { rootFull }.Concat(parts.Skip(start).ToArray()).ToArray()));
+        return IsPathWithinRoot(candidate, rootFull, allowRoot: true) ? candidate : null;
+    }
+
+    private static bool IsJobInsideConfiguredRoot(SyncJob job, AppSettings settings)
+    {
+        if (string.IsNullOrWhiteSpace(settings.SyncFolder) || string.IsNullOrWhiteSpace(job.FilePath)) return false;
+        var root = NormalizePath(settings.SyncFolder);
+        var path = NormalizePath(job.FilePath);
+        if (!IsPathWithinRoot(path, root, allowRoot: true)) return false;
+        var expectedRelative = BuildRelativePath(job.FilePath, settings);
+        return expectedRelative is not null && string.Equals(expectedRelative, job.RelativePath.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase);
     }
 
     private static void DeleteLocalPath(string? path)

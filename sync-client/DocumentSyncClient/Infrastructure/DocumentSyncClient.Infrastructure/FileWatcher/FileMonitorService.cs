@@ -32,6 +32,7 @@ public sealed class FileMonitorService : IFileMonitorService
 
     private CancellationTokenSource? _cts;
     private Task? _processingTask;
+    private string? _headRoot;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="FileMonitorService"/> class.
@@ -50,20 +51,34 @@ public sealed class FileMonitorService : IFileMonitorService
             throw new ArgumentException("A root path is required for file monitoring.", nameof(rootPath));
         }
 
-        if (!Directory.Exists(rootPath))
+                var normalizedRoot = Path.GetFullPath(rootPath.Trim());
+        if (string.Equals(Path.GetPathRoot(normalizedRoot), normalizedRoot, StringComparison.OrdinalIgnoreCase))
         {
-            throw new DirectoryNotFoundException($"The monitoring root '{rootPath}' was not found.");
+            throw new InvalidOperationException("Choose a folder below the drive root. The drive root cannot be synchronized.");
         }
 
+        if (!Directory.Exists(normalizedRoot))
+        {
+            throw new DirectoryNotFoundException($"The monitoring root '{normalizedRoot}' was not found.");
+        }
+
+        if (_headRoot is not null && !string.Equals(_headRoot, normalizedRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("Ignoring additional sync root {Root}; only the configured head folder {HeadRoot} may be monitored.", normalizedRoot, _headRoot);
+            return Task.CompletedTask;
+        }
+
+        _headRoot ??= normalizedRoot;
         _cts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        if (_watchers.Any(w => string.Equals(w.Path, rootPath, StringComparison.OrdinalIgnoreCase)))
+        if (_watchers.Any(w => string.Equals(w.Path, normalizedRoot, StringComparison.OrdinalIgnoreCase)))
+
         {
             return Task.CompletedTask;
         }
 
-        RememberDirectories(rootPath);
+        RememberDirectories(normalizedRoot);
 
-        var watcher = new FileSystemWatcher(rootPath)
+        var watcher = new FileSystemWatcher(normalizedRoot)
 
         {
             IncludeSubdirectories = true,
@@ -128,8 +143,16 @@ public sealed class FileMonitorService : IFileMonitorService
 
     private async Task HandleEventAsync(string path, SyncOperationType operation, string? payload = null, string? watchedRoot = null, bool isDirectoryHint = false)
     {
-        if (string.IsNullOrWhiteSpace(path) || IsIgnored(path) || _syncEngine.IsApplyingRemoteChanges)
+        if (string.IsNullOrWhiteSpace(path) || IsIgnored(path) || _syncEngine.IsApplyingRemoteChanges || !IsInsideHeadRoot(path, watchedRoot))
         {
+            if (!IsInsideHeadRoot(path, watchedRoot))
+                _logger.LogWarning("Ignoring filesystem event outside the head folder: {Path}", path);
+            return;
+        }
+
+        if (operation == SyncOperationType.Rename && !string.IsNullOrWhiteSpace(payload) && !IsInsideHeadRoot(payload, watchedRoot))
+        {
+            _logger.LogWarning("Ignoring rename whose old path is outside the head folder: {Path}", payload);
             return;
         }
 
@@ -180,6 +203,23 @@ public sealed class FileMonitorService : IFileMonitorService
         }
 
         await _syncEngine.QueueFileChangeAsync(path, operation);
+    }
+
+    private bool IsInsideHeadRoot(string path, string? watchedRoot)
+    {
+        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(watchedRoot)) return false;
+        try
+        {
+            var root = Path.GetFullPath(watchedRoot.Trim());
+            var candidate = Path.GetFullPath(path.Trim());
+            if (string.Equals(root, candidate, StringComparison.OrdinalIgnoreCase)) return true;
+            var prefix = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            return candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 
     private void RememberDirectories(string rootPath)

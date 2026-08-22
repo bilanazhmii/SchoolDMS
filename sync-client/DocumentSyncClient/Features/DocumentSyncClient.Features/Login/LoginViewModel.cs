@@ -164,7 +164,7 @@ public sealed class LoginViewModel : INotifyPropertyChanged
     public string SyncFolder { get => _syncFolder; set { if (_syncFolder == value) return; _syncFolder = value; OnPropertyChanged(); OnPropertyChanged(nameof(AllSyncFolders)); } }
     public System.Collections.ObjectModel.ObservableCollection<string> ExtraFolders { get; } = [];
     public IEnumerable<string> AllSyncFolders =>
-        new[] { SyncFolder }.Concat(ExtraFolders).Where(p => !string.IsNullOrWhiteSpace(p)).Distinct(StringComparer.OrdinalIgnoreCase);
+        new[] { SyncFolder }.Where(p => !string.IsNullOrWhiteSpace(p));
     public bool AutoSync { get => _autoSync; set { if (_autoSync == value) return; _autoSync = value; OnPropertyChanged(); } }
     public bool AutoStartWindows { get => _autoStartWindows; set { if (_autoStartWindows == value) return; _autoStartWindows = value; OnPropertyChanged(); } }
 
@@ -255,10 +255,18 @@ public sealed class LoginViewModel : INotifyPropertyChanged
         {
             // Persist the connection settings FIRST so the sign-in request
             // and all subsequent sync traffic use the URL typed in the UI.
+            var selectedRoot = SyncFolder.Trim();
+            if (!string.IsNullOrWhiteSpace(selectedRoot) && !IsValidHeadFolder(selectedRoot))
+            {
+                Status = "Choose an existing folder below the drive root. The drive root itself cannot be synchronized.";
+                return;
+            }
+
             var settings = await _settingsService.LoadAsync();
             settings.ServerUrl = ServerUrl.Trim().TrimEnd('/');
-            settings.SyncFolder = SyncFolder.Trim();
-            settings.SyncFolders = ExtraFolders.Where(p => !string.IsNullOrWhiteSpace(p)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            settings.SyncFolder = selectedRoot;
+
+            settings.SyncFolders = [];
             settings.AutoSync = AutoSync;
             settings.AutoStartWindows = AutoStartWindows;
             settings.RememberLogin = RememberLogin;
@@ -325,8 +333,10 @@ public sealed class LoginViewModel : INotifyPropertyChanged
         ServerUrl = string.IsNullOrWhiteSpace(settings.ServerUrl) ? ServerUrl : settings.ServerUrl;
         SyncFolder = settings.SyncFolder;
         ExtraFolders.Clear();
-        foreach (var folder in settings.SyncFolders.Where(p => !string.IsNullOrWhiteSpace(p) && !string.Equals(p, settings.SyncFolder, StringComparison.OrdinalIgnoreCase)))
-            ExtraFolders.Add(folder);
+        // Legacy extra roots are deliberately ignored. The selected SyncFolder
+        // is the only synchronization boundary.
+        settings.SyncFolders.Clear();
+
         AutoSync = settings.AutoSync;
         AutoStartWindows = settings.AutoStartWindows;
         RememberLogin = settings.RememberLogin;
@@ -340,28 +350,47 @@ public sealed class LoginViewModel : INotifyPropertyChanged
     private void AddFolder()
     {
         FolderPicker?.Invoke();
-        if (string.IsNullOrWhiteSpace(SyncFolder)) return;
-        if (ExtraFolders.Any(p => string.Equals(p, SyncFolder, StringComparison.OrdinalIgnoreCase))) return;
-        ExtraFolders.Add(SyncFolder);
+        // Kept for backwards-compatible command bindings; one head folder only.
         OnPropertyChanged(nameof(AllSyncFolders));
+
     }
 
     private void RemoveFolder(string? path)
     {
         if (string.IsNullOrWhiteSpace(path)) return;
-        var match = ExtraFolders.FirstOrDefault(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase));
-        if (match is not null) ExtraFolders.Remove(match);
         if (string.Equals(SyncFolder, path, StringComparison.OrdinalIgnoreCase))
-            SyncFolder = ExtraFolders.FirstOrDefault() ?? string.Empty;
+            SyncFolder = string.Empty;
         OnPropertyChanged(nameof(AllSyncFolders));
+
+    }
+
+    private static bool IsValidHeadFolder(string path)
+    {
+        try
+        {
+            var fullPath = Path.GetFullPath(path.Trim());
+            return Directory.Exists(fullPath) && !string.Equals(Path.GetPathRoot(fullPath), fullPath, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 
     private async Task SaveSettingsAsync()
     {
+        var selectedRoot = SyncFolder.Trim();
+        if (!string.IsNullOrWhiteSpace(selectedRoot) && !IsValidHeadFolder(selectedRoot))
+        {
+            Status = "Choose an existing folder below the drive root. The drive root itself cannot be synchronized.";
+            return;
+        }
+
         var settings = await _settingsService.LoadAsync();
         settings.ServerUrl = ServerUrl.Trim().TrimEnd('/');
-        settings.SyncFolder = SyncFolder.Trim();
-        settings.SyncFolders = ExtraFolders.Where(p => !string.IsNullOrWhiteSpace(p)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        settings.SyncFolder = selectedRoot;
+        settings.SyncFolders = [];
+
         settings.AutoSync = AutoSync;
         settings.AutoStartWindows = AutoStartWindows;
         settings.RememberLogin = RememberLogin;
