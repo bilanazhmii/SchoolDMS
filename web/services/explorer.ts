@@ -194,3 +194,16 @@ export async function fetchPreviewUrl(fileId: string): Promise<{ url: string }> 
   const url = payload?.previewUrl || payload?.streamUrl || `/files/${fileId}/stream`;
   return { url };
 }
+
+export async function downloadFiles(fileIds: string[]) {
+  const response = await api.post('/files/bulk-download', { ids: fileIds }, { responseType: 'blob' });
+  const blob = new Blob([response.data], { type: 'application/zip' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = 'SchoolDMS-Selection.zip';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

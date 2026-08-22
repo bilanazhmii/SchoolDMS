@@ -36,6 +36,21 @@ interface UploadedFile {
 export class FileController {
   constructor(private service: FileService) {}
 
+  @Post('bulk-download')
+  @ApiOperation({ summary: 'Download multiple selected files as a ZIP archive' })
+  async bulkDownload(
+    @CurrentUser() user: AuthenticatedProfile,
+    @Body() body: { ids?: unknown } = {},
+    @Res() res: Response,
+  ) {
+    const ids = Array.isArray(body.ids) ? body.ids.filter((id): id is string => typeof id === 'string') : [];
+    const result = await this.service.downloadMany(user.id, ids);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="SchoolDMS-Selection.zip"');
+    res.setHeader('Content-Length', result.buffer.length.toString());
+    return res.send(result.buffer);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get file metadata and versions' })
   async get(

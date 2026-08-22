@@ -2,12 +2,12 @@ import { FC, useCallback, useState } from 'react';
 
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
-import { CheckSquare, Copy, FolderPlus, LayoutGrid, List, Move, RefreshCw, Search, Trash2, Upload, X, Loader2 } from 'lucide-react';
+import { CheckSquare, Copy, Download, FolderPlus, LayoutGrid, List, Move, RefreshCw, Search, Trash2, Upload, X, Loader2 } from 'lucide-react';
 
 import { cn } from '../../lib/utils';
 import api from '../../lib/axios';
 import { useExplorer } from '../../hooks/useExplorer';
-import { copyFolder, copyItem, createFolder, deleteFolder, deleteItem, deleteItems, moveFolder, moveItem, searchExplorer, uploadFiles } from '../../services/explorer';
+import { copyFolder, copyItem, createFolder, deleteFolder, deleteItem, deleteItems, downloadFiles, moveFolder, moveItem, searchExplorer, uploadFiles } from '../../services/explorer';
 import type { FileItem, FolderItem } from '../../types/explorer';
 import MoveDialog from './MoveDialog';
 
@@ -54,9 +54,28 @@ const Toolbar: FC<{ folderId?: string; items: ExplorerItem[] }> = ({ folderId, i
   }, [refresh]);
 
   const targets = items.filter((item) => selected.includes(item.id));
+  const selectedFiles = targets.filter((item): item is FileItem => 'mimeType' in item);
 
-  const executeBulk = useCallback(async (action: 'copy' | 'delete' | 'move', destination?: string | null) => {
-        if (!targets.length) return;
+  const executeBulk = useCallback(async (action: 'copy' | 'delete' | 'move' | 'download', destination?: string | null) => {
+    if (!targets.length) return;
+    if (action === 'download') {
+      if (!selectedFiles.length) {
+        setStatus({ type: 'error', text: 'Pilih minimal satu file untuk diunduh.' });
+        return;
+      }
+      if (!confirmWebMutation(`Unduh ${selectedFiles.length} file terpilih sebagai ZIP`)) return;
+      try {
+        setBusy(true);
+        setStatus(null);
+        await downloadFiles(selectedFiles.map((file) => file.id));
+        setStatus({ type: 'success', text: `${selectedFiles.length} file berhasil disiapkan sebagai SchoolDMS-Selection.zip.` });
+      } catch (error) {
+        setStatus({ type: 'error', text: error instanceof Error ? error.message : 'Bulk download failed.' });
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     const description = action === 'delete'
       ? `Hapus ${targets.length} item terpilih dan pindahkan ke Trash`
       : action === 'copy'
@@ -92,9 +111,9 @@ const Toolbar: FC<{ folderId?: string; items: ExplorerItem[] }> = ({ folderId, i
     } finally {
       setBusy(false);
     }
-  }, [clearSelection, folderId, refresh, targets]);
+  }, [clearSelection, downloadFiles, folderId, refresh, selectedFiles, targets]);
 
-  const handleBulk = (action: 'copy' | 'delete' | 'move') => {
+  const handleBulk = (action: 'copy' | 'delete' | 'move' | 'download') => {
     if (!targets.length) return;
     if (action === 'move') {
       setMoveOpen(true);
@@ -173,6 +192,7 @@ const Toolbar: FC<{ folderId?: string; items: ExplorerItem[] }> = ({ folderId, i
             )}
             {selected.length > 0 && (
               <div className="flex items-center gap-1 rounded-md border border-border bg-surface-active p-1">
+                <button type="button" disabled={busy || !selectedFiles.length} onClick={() => handleBulk('download')} className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-foreground-muted hover:bg-surface-hover disabled:opacity-50" title="Download selected files"><Download className="h-3.5 w-3.5" />Download{selectedFiles.length ? ` (${selectedFiles.length})` : ''}</button>
                 <button type="button" disabled={busy} onClick={() => handleBulk('copy')} className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-foreground-muted hover:bg-surface-hover disabled:opacity-50" title="Copy selected"><Copy className="h-3.5 w-3.5" />Copy</button>
                 <button type="button" disabled={busy} onClick={() => handleBulk('move')} className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-foreground-muted hover:bg-surface-hover disabled:opacity-50" title="Move selected"><Move className="h-3.5 w-3.5" />Move</button>
                 <button type="button" disabled={busy} onClick={() => handleBulk('delete')} className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-danger hover:bg-danger/10 disabled:opacity-50" title="Delete selected"><Trash2 className="h-3.5 w-3.5" />Delete</button>

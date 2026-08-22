@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { Readable } from 'stream';
+import { deflateRawSync } from 'zlib';
 
 import {
   BadRequestException,
@@ -62,6 +63,72 @@ export class FileService {
     const extension = name.toLowerCase().split('.').pop() ?? '';
     const byExtension: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', svg: 'image/svg+xml', mp4: 'video/mp4', webm: 'video/webm', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', pdf: 'application/pdf', txt: 'text/plain', csv: 'text/csv', json: 'application/json', xml: 'application/xml', md: 'text/markdown', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', zip: 'application/zip' };
     return byExtension[extension] ?? declared ?? 'application/octet-stream';
+  }
+
+  private crc32(buffer: Buffer) {
+    let crc = 0xffffffff;
+    for (const byte of buffer) {
+      crc ^= byte;
+      for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+  }
+
+  private buildZip(entries: Array<{ name: string; content: Buffer; modifiedAt: Date }>) {
+    const localParts: Buffer[] = [];
+    const centralParts: Buffer[] = [];
+    let offset = 0;
+    for (const entry of entries) {
+      const name = entry.name.replace(/\\/g, '/').split('/').filter((part) => part && part !== '.' && part !== '..').join('/') || 'file';
+      const nameBuffer = Buffer.from(name, 'utf8');
+      const compressed = deflateRawSync(entry.content);
+      const crc = this.crc32(entry.content);
+      const date = entry.modifiedAt;
+      const dosTime = (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2);
+      const dosDate = ((date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
+      const local = Buffer.alloc(30 + nameBuffer.length);
+      local.writeUInt32LE(0x04034b50, 0);
+      local.writeUInt16LE(20, 4); local.writeUInt16LE(0, 6); local.writeUInt16LE(8, 8);
+      local.writeUInt16LE(dosTime, 10); local.writeUInt16LE(dosDate, 12); local.writeUInt32LE(crc, 14);
+      local.writeUInt32LE(compressed.length, 18); local.writeUInt32LE(entry.content.length, 22);
+      local.writeUInt16LE(nameBuffer.length, 26); local.writeUInt16LE(0, 28); nameBuffer.copy(local, 30);
+      localParts.push(local, compressed);
+
+      const central = Buffer.alloc(46 + nameBuffer.length);
+      central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(20, 4); central.writeUInt16LE(20, 6);
+      central.writeUInt16LE(0, 8); central.writeUInt16LE(8, 10); central.writeUInt16LE(dosTime, 12); central.writeUInt16LE(dosDate, 14);
+      central.writeUInt32LE(crc, 16); central.writeUInt32LE(compressed.length, 20); central.writeUInt32LE(entry.content.length, 24);
+      central.writeUInt16LE(nameBuffer.length, 28); central.writeUInt16LE(0, 30); central.writeUInt16LE(0, 32); central.writeUInt16LE(0, 34);
+      central.writeUInt16LE(0, 36); central.writeUInt32LE(0, 38); central.writeUInt32LE(offset, 42); nameBuffer.copy(central, 46);
+      centralParts.push(central);
+      offset += local.length + compressed.length;
+    }
+    const centralDirectory = Buffer.concat(centralParts);
+    const end = Buffer.alloc(22);
+    end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(0, 4); end.writeUInt16LE(0, 6);
+    end.writeUInt16LE(entries.length, 8); end.writeUInt16LE(entries.length, 10); end.writeUInt32LE(centralDirectory.length, 12); end.writeUInt32LE(offset, 16); end.writeUInt16LE(0, 20);
+    return Buffer.concat([...localParts, centralDirectory, end]);
+  }
+
+  async downloadMany(profileId: string, ids: string[]) {
+    const uniqueIds = [...new Set(ids.filter((id) => typeof id === 'string' && id.trim()))];
+    if (!uniqueIds.length) throw new BadRequestException('At least one file is required');
+    if (uniqueIds.length > 100) throw new BadRequestException('You can download at most 100 files at once');
+    const files = await this.prisma.file.findMany({ where: { id: { in: uniqueIds }, ownerId: profileId, deletedAt: null }, orderBy: { relativePath: 'asc' } });
+    if (!files.length) throw new NotFoundException('No selected files were found');
+    const entries: Array<{ name: string; content: Buffer; modifiedAt: Date }> = [];
+    let totalBytes = 0;
+    for (const file of files) {
+      const latest = await this.prisma.fileVersion.findFirst({ where: { fileId: file.id }, orderBy: { versionNumber: 'desc' } });
+      if (!latest?.storagePath) continue;
+      const content = await this.storage.download(latest.storagePath);
+      totalBytes += content.length;
+      if (totalBytes > 500 * 1024 * 1024) throw new BadRequestException('Selected files exceed the 500 MB bulk download limit');
+      const relativeName = file.relativePath?.replace(/^\/+/, '') || file.name;
+      entries.push({ name: relativeName, content, modifiedAt: file.updatedAt });
+    }
+    if (!entries.length) throw new NotFoundException('Selected files have no stored versions');
+    return { buffer: this.buildZip(entries), count: entries.length };
   }
 
   private async emitRemoteChange(profileId: string, change: Parameters<SyncStatusService['emitRemoteChange']>[1]) {
