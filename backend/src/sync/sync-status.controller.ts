@@ -15,32 +15,33 @@ export class SyncStatusController {
   constructor(private readonly sync: SyncStatusService) {}
 
   @Post('heartbeat')
-  heartbeat(
+  async heartbeat(
     @CurrentUser() user: AuthenticatedProfile,
     @Body() dto: HeartbeatDto,
   ) {
-    return { success: true, data: this.sync.heartbeat(user.id, dto) };
+    return { success: true, data: await this.sync.heartbeat(user.id, dto) };
   }
 
   @Post('jobs')
-  reportJob(
+  async reportJob(
     @CurrentUser() user: AuthenticatedProfile,
     @Body() dto: SyncJobReportDto,
   ) {
-    return { success: true, data: this.sync.reportJob(user.id, dto) };
+    return { success: true, data: await this.sync.reportJob(user.id, dto) };
   }
 
   @Get('changes')
-  changes(
+  async changes(
     @CurrentUser() user: AuthenticatedProfile,
     @Query('since') since?: string,
     @Query('limit') limit?: string,
   ) {
-    return { success: true, data: this.sync.getRemoteChanges(user.id, since, limit ? Number(limit) : 200) };
+    return { success: true, data: await this.sync.getRemoteChanges(user.id, since, limit ? Number(limit) : 200) };
   }
 
   @Get('status')
-  status(@CurrentUser() user: AuthenticatedProfile) {
-    return { success: true, data: this.sync.status(user.id) };
+    async status(@CurrentUser() user: AuthenticatedProfile) {
+    return { success: true, data: await this.sync.status(user.id) };
   }
+
 }
