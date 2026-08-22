@@ -25,7 +25,12 @@ import Toolbar from './Toolbar';
 import VersionHistoryPanel from './VersionHistoryPanel';
 import MoveDialog from './MoveDialog';
 
+const confirmWebMutation = (description: string) => window.confirm(
+  `Konfirmasi perubahan\n\n${description}\n\nPerubahan akan disimpan di web dan dikirim ke laptop yang terhubung. Lanjutkan?`,
+);
+
 const ExplorerInner: React.FC = () => {
+
   const { currentFolderId, setCurrentFolderId, previewFile, setPreviewFile, setSelection } = useExplorerContext();
   const { view } = useExplorer();
   const qc = useQueryClient();
@@ -53,17 +58,22 @@ const ExplorerInner: React.FC = () => {
       setMoveTarget(item);
       return;
     }
-    if (action === 'delete' && !window.confirm(`Delete ${item.name}?`)) return;
+        if (action === 'delete' && !confirmWebMutation(`Hapus ${item.name} dan pindahkan ke Trash`)) return;
+
     try {
       setActionBusy(true);
       setActionMessage(null);
       if (action === 'rename') {
         const nextName = window.prompt('Rename item', item.name);
-        if (!nextName?.trim() || nextName.trim() === item.name) return;
+                if (!nextName?.trim() || nextName.trim() === item.name) return;
+        if (!confirmWebMutation(`Ubah nama ${item.name} menjadi ${nextName.trim()}`)) return;
         if (isFile) await renameFile(item.id, nextName.trim());
+
         else await renameFolder(item.id, nextName.trim());
-      } else if (action === 'copy') {
+            } else if (action === 'copy') {
+        if (!confirmWebMutation(`Salin ${item.name} ke folder tujuan`)) return;
         if (isFile) await copyItem(item.id, currentFolderId ?? undefined);
+
         else await copyFolder(item.id);
       } else {
         if (isFile) await deleteItem(item.id);
@@ -82,9 +92,11 @@ const ExplorerInner: React.FC = () => {
 
   const confirmMove = async (destination: string | null) => {
     if (!moveTarget) return;
-    const target = moveTarget;
+        const target = moveTarget;
     const isFile = 'mimeType' in target;
+    if (!confirmWebMutation(`Pindahkan ${target.name} ke folder tujuan`)) return;
     try {
+
       setActionBusy(true);
       setActionMessage(null);
       if (isFile) await moveItem(target.id, destination ?? undefined);

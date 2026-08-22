@@ -386,7 +386,7 @@ export class FileService {
     } catch (error) {
       this.logger.warn(`Google Drive trash failed for ${id}`, error as Error);
     }
-    await this.emitRemoteChange(profileId, { operation: SyncOperation.DELETE, fileId: file.id, relativePath: file.relativePath, name: file.name });
+    await this.emitRemoteChange(profileId, { operation: SyncOperation.DELETE, fileId: file.id, relativePath: file.relativePath, name: file.name, sha256: file.sha256 });
     // Delete callers only need an acknowledgement. Returning a small DTO avoids
     // sending a Prisma row through Express serialization on a destructive path.
     return { id: deleted.id, name: deleted.name, deletedAt: deleted.deletedAt };
@@ -429,7 +429,7 @@ export class FileService {
     }
 
     for (const file of files) {
-      await this.emitRemoteChange(profileId, { operation: SyncOperation.DELETE, fileId: file.id, relativePath: file.relativePath, name: file.name });
+      await this.emitRemoteChange(profileId, { operation: SyncOperation.DELETE, fileId: file.id, relativePath: file.relativePath, name: file.name, sha256: file.sha256 });
       try {
         await this.audit.log(profileId, 'DELETE', 'FILE', file.id, { name: file.name });
       } catch (error) {

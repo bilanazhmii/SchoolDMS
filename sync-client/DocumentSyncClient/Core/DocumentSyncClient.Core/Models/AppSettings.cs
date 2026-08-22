@@ -60,5 +60,12 @@ public sealed class AppSettings
     /// <summary>
     /// Gets or sets the server remote-change cursor last applied locally.
     /// </summary>
-    public string RemoteSyncCursor { get; set; } = string.Empty;
+        public string RemoteSyncCursor { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the signature of the active local target folders.
+    /// Changing targets resets the remote cursor so re-enabled folders can replay safely.
+    /// </summary>
+    public string SyncTargetSignature { get; set; } = string.Empty;
+
 }

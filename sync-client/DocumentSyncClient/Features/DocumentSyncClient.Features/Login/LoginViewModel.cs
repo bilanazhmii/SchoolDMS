@@ -163,8 +163,9 @@ public sealed class LoginViewModel : INotifyPropertyChanged
     public string ServerUrl { get => _serverUrl; set { if (_serverUrl == value) return; _serverUrl = value; OnPropertyChanged(); } }
     public string SyncFolder { get => _syncFolder; set { if (_syncFolder == value) return; _syncFolder = value; OnPropertyChanged(); OnPropertyChanged(nameof(AllSyncFolders)); } }
     public System.Collections.ObjectModel.ObservableCollection<string> ExtraFolders { get; } = [];
-    public IEnumerable<string> AllSyncFolders =>
-        new[] { SyncFolder }.Where(p => !string.IsNullOrWhiteSpace(p));
+        public IEnumerable<string> AllSyncFolders =>
+        new[] { SyncFolder }.Concat(ExtraFolders).Where(p => !string.IsNullOrWhiteSpace(p)).Distinct(StringComparer.OrdinalIgnoreCase);
+
     public bool AutoSync { get => _autoSync; set { if (_autoSync == value) return; _autoSync = value; OnPropertyChanged(); } }
     public bool AutoStartWindows { get => _autoStartWindows; set { if (_autoStartWindows == value) return; _autoStartWindows = value; OnPropertyChanged(); } }
 
@@ -255,24 +256,25 @@ public sealed class LoginViewModel : INotifyPropertyChanged
         {
             // Persist the connection settings FIRST so the sign-in request
             // and all subsequent sync traffic use the URL typed in the UI.
-            var selectedRoot = SyncFolder.Trim();
-            if (!string.IsNullOrWhiteSpace(selectedRoot) && !IsValidHeadFolder(selectedRoot))
+                        var selectedFolders = GetSelectedFolders().ToList();
+            if (selectedFolders.Any(folder => !IsValidHeadFolder(folder)))
             {
-                Status = "Choose an existing folder below the drive root. The drive root itself cannot be synchronized.";
+                Status = "Every target must be an existing folder below the drive root. The drive root itself cannot be synchronized.";
                 return;
             }
 
+            var selectedRoot = selectedFolders.FirstOrDefault() ?? string.Empty;
             var settings = await _settingsService.LoadAsync();
             settings.ServerUrl = ServerUrl.Trim().TrimEnd('/');
             settings.SyncFolder = selectedRoot;
+            settings.SyncFolders = selectedFolders.Skip(1).ToList();
 
-            settings.SyncFolders = [];
             settings.AutoSync = AutoSync;
             settings.AutoStartWindows = AutoStartWindows;
             settings.RememberLogin = RememberLogin;
             settings.AutoLogin = RememberLogin;
-            if (!string.IsNullOrWhiteSpace(settings.SyncFolder))
-                Directory.CreateDirectory(settings.SyncFolder);
+            foreach (var folder in selectedFolders)
+                Directory.CreateDirectory(folder);
             await _settingsService.SaveAsync(settings);
 
             var result = await _authenticationService.SignInAsync(new LoginRequestDto { Email = Email, Password = Password });
@@ -329,13 +331,14 @@ public sealed class LoginViewModel : INotifyPropertyChanged
     private async Task LoadSettingsAsync()
 
     {
-        var settings = await _settingsService.LoadAsync();
+                var settings = await _settingsService.LoadAsync();
+        settings.SyncFolders ??= [];
         ServerUrl = string.IsNullOrWhiteSpace(settings.ServerUrl) ? ServerUrl : settings.ServerUrl;
         SyncFolder = settings.SyncFolder;
+
         ExtraFolders.Clear();
-        // Legacy extra roots are deliberately ignored. The selected SyncFolder
-        // is the only synchronization boundary.
-        settings.SyncFolders.Clear();
+        foreach (var folder in settings.SyncFolders.Where(p => !string.IsNullOrWhiteSpace(p) && !string.Equals(p, settings.SyncFolder, StringComparison.OrdinalIgnoreCase)))
+            ExtraFolders.Add(folder);
 
         AutoSync = settings.AutoSync;
         AutoStartWindows = settings.AutoStartWindows;
@@ -350,18 +353,20 @@ public sealed class LoginViewModel : INotifyPropertyChanged
     private void AddFolder()
     {
         FolderPicker?.Invoke();
-        // Kept for backwards-compatible command bindings; one head folder only.
+        if (string.IsNullOrWhiteSpace(SyncFolder)) return;
+        if (ExtraFolders.Any(p => string.Equals(p, SyncFolder, StringComparison.OrdinalIgnoreCase))) return;
+        ExtraFolders.Add(SyncFolder);
         OnPropertyChanged(nameof(AllSyncFolders));
-
     }
 
     private void RemoveFolder(string? path)
     {
         if (string.IsNullOrWhiteSpace(path)) return;
+        var match = ExtraFolders.FirstOrDefault(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase));
+        if (match is not null) ExtraFolders.Remove(match);
         if (string.Equals(SyncFolder, path, StringComparison.OrdinalIgnoreCase))
-            SyncFolder = string.Empty;
+            SyncFolder = ExtraFolders.FirstOrDefault() ?? string.Empty;
         OnPropertyChanged(nameof(AllSyncFolders));
-
     }
 
     private static bool IsValidHeadFolder(string path)
@@ -377,27 +382,35 @@ public sealed class LoginViewModel : INotifyPropertyChanged
         }
     }
 
+    private IEnumerable<string> GetSelectedFolders()
+        => new[] { SyncFolder }.Concat(ExtraFolders)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => Path.GetFullPath(path.Trim()))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
     private async Task SaveSettingsAsync()
     {
-        var selectedRoot = SyncFolder.Trim();
-        if (!string.IsNullOrWhiteSpace(selectedRoot) && !IsValidHeadFolder(selectedRoot))
+        var selectedFolders = GetSelectedFolders().ToList();
+        if (selectedFolders.Any(folder => !IsValidHeadFolder(folder)))
         {
-            Status = "Choose an existing folder below the drive root. The drive root itself cannot be synchronized.";
+            Status = "Every target must be an existing folder below the drive root. The drive root itself cannot be synchronized.";
             return;
         }
 
+        var selectedRoot = selectedFolders.FirstOrDefault() ?? string.Empty;
         var settings = await _settingsService.LoadAsync();
         settings.ServerUrl = ServerUrl.Trim().TrimEnd('/');
         settings.SyncFolder = selectedRoot;
-        settings.SyncFolders = [];
+        settings.SyncFolders = selectedFolders.Skip(1).ToList();
 
         settings.AutoSync = AutoSync;
         settings.AutoStartWindows = AutoStartWindows;
         settings.RememberLogin = RememberLogin;
         settings.AutoLogin = RememberLogin;
-        if (!string.IsNullOrWhiteSpace(settings.SyncFolder))
-            Directory.CreateDirectory(settings.SyncFolder);
+                foreach (var folder in selectedFolders)
+            Directory.CreateDirectory(folder);
         await _settingsService.SaveAsync(settings);
+
 #pragma warning disable CA1416
         ConfigureStartup(AutoStartWindows);
 #pragma warning restore CA1416

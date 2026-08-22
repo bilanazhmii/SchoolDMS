@@ -68,12 +68,8 @@ public partial class App : System.Windows.Application
 
         var settingsService = _host.Services.GetRequiredService<IAppSettingsService>();
         var settings = await settingsService.LoadAsync();
-        if (settings.SyncFolders is null || settings.SyncFolders.Count > 0)
-        {
-            settings.SyncFolders = [];
-            await settingsService.SaveAsync(settings);
-        }
-        LogStartup($"Settings loaded: server={settings.ServerUrl}, head folder={settings.SyncFolder}");
+        settings.SyncFolders ??= [];
+        LogStartup($"Settings loaded: server={settings.ServerUrl}, target folders={1 + settings.SyncFolders.Count(p => !string.IsNullOrWhiteSpace(p))}");
         var authStore = _host.Services.GetRequiredService<IAuthenticationStore>();
         if (!settings.RememberLogin && !settings.AutoLogin)
         {
@@ -85,12 +81,15 @@ public partial class App : System.Windows.Application
 
         LogStartup("Sync engine started");
 
-        var headFolder = settings.SyncFolder;
         var monitor = _host.Services.GetRequiredService<IFileMonitorService>();
-        if (!string.IsNullOrWhiteSpace(headFolder) && Directory.Exists(headFolder))
+        var targetFolders = new[] { settings.SyncFolder }
+            .Concat(settings.SyncFolders ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        foreach (var folder in targetFolders)
         {
-            await monitor.StartAsync(headFolder);
-            LogStartup($"File monitor started for head folder {headFolder}");
+            await monitor.StartAsync(folder);
+            LogStartup($"File monitor started for target folder {folder}");
         }
 
         var mainWindow = _host.Services.GetRequiredService<MainWindow>();

@@ -14,6 +14,10 @@ import MoveDialog from './MoveDialog';
 type ExplorerItem = FileItem | FolderItem;
 type Status = { type: 'success' | 'error'; text: string } | null;
 
+const confirmWebMutation = (description: string) => window.confirm(
+  `Konfirmasi perubahan\n\n${description}\n\nPerubahan akan disimpan di web dan dikirim ke laptop yang terhubung. Lanjutkan?`,
+);
+
 const Toolbar: FC<{ folderId?: string; items: ExplorerItem[] }> = ({ folderId, items }) => {
   const [q, setQ] = useState('');
   const [syncing, setSyncing] = useState(false);
@@ -52,9 +56,15 @@ const Toolbar: FC<{ folderId?: string; items: ExplorerItem[] }> = ({ folderId, i
   const targets = items.filter((item) => selected.includes(item.id));
 
   const executeBulk = useCallback(async (action: 'copy' | 'delete' | 'move', destination?: string | null) => {
-    if (!targets.length) return;
-    if (action === 'delete' && !window.confirm(`Move ${targets.length} selected item(s) to Trash?`)) return;
+        if (!targets.length) return;
+    const description = action === 'delete'
+      ? `Hapus ${targets.length} item terpilih dan pindahkan ke Trash`
+      : action === 'copy'
+        ? `Salin ${targets.length} item terpilih`
+        : `Pindahkan ${targets.length} item terpilih`;
+    if (!confirmWebMutation(description)) return;
     try {
+
       setBusy(true);
       setStatus(null);
       if (action === 'delete') {
@@ -100,9 +110,11 @@ const Toolbar: FC<{ folderId?: string; items: ExplorerItem[] }> = ({ folderId, i
     qc.invalidateQueries({ queryKey: ['explorer', 'search'] });
   }, [q, router, qc]);
 
-  const upload = async (files: File[]) => {
+    const upload = async (files: File[]) => {
     if (!files.length) return;
+    if (!confirmWebMutation(`Upload ${files.length} file ke folder tujuan`)) return;
     try {
+
       setBusy(true);
       setStatus(null);
       const form = new FormData();
@@ -127,10 +139,12 @@ const Toolbar: FC<{ folderId?: string; items: ExplorerItem[] }> = ({ folderId, i
     e.target.value = '';
   };
 
-  const handleNewFolder = async () => {
+    const handleNewFolder = async () => {
     const name = window.prompt('Folder name');
     if (!name?.trim()) return;
+    if (!confirmWebMutation(`Buat folder ${name.trim()}`)) return;
     try {
+
       setBusy(true);
       await createFolder(name.trim(), folderId);
       refresh();

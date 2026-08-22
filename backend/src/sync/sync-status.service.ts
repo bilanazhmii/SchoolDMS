@@ -3,11 +3,18 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SyncOperation, SyncStatus } from '@prisma/client';
 
+export interface DeviceTargetDto {
+  relativeRoot: string;
+  localPath: string;
+  active?: boolean;
+}
+
 export interface HeartbeatDto {
   deviceIdentifier: string;
   hostname?: string;
   machineName?: string;
   clientVersion?: string;
+  targets?: DeviceTargetDto[];
 }
 
 export interface SyncJobReportDto {
@@ -65,8 +72,39 @@ export class SyncStatusService {
       },
     });
 
+        if (dto.targets !== undefined) {
+      const targets = dto.targets
+        .map((target) => ({
+          relativeRoot: target.relativeRoot.trim().replace(/^[\\/]+|[\\/]+$/g, ''),
+          localPath: target.localPath.trim(),
+          active: target.active !== false,
+        }))
+        .filter((target) => target.relativeRoot && target.localPath);
+      const activeRoots = targets.filter((target) => target.active).map((target) => target.relativeRoot);
+      await this.prisma.$transaction(async (tx) => {
+        await tx.deviceTarget.updateMany({
+          where: { deviceId: device.id, active: true, ...(activeRoots.length ? { relativeRoot: { notIn: activeRoots } } : {}) },
+          data: { active: false },
+        });
+        for (const target of targets) {
+          await tx.deviceTarget.upsert({
+            where: { deviceId_relativeRoot: { deviceId: device.id, relativeRoot: target.relativeRoot } },
+            update: { localPath: target.localPath, active: target.active },
+            create: { profileId, deviceId: device.id, relativeRoot: target.relativeRoot, localPath: target.localPath, active: target.active },
+          });
+        }
+      });
+    }
+
+    const registeredTargets = await this.prisma.deviceTarget.findMany({
+      where: { deviceId: device.id },
+      orderBy: { relativeRoot: 'asc' },
+      select: { id: true, relativeRoot: true, localPath: true, active: true, updatedAt: true },
+    });
+
     // One active sync session per device.
     const session = await this.prisma.syncSession.upsert({
+
       where: { sessionKey: dto.deviceIdentifier },
       update: { status: 'ACTIVE', updatedAt: new Date() },
       create: {
@@ -78,7 +116,8 @@ export class SyncStatusService {
       },
     });
 
-    return { sessionId: session.id, deviceId: device.id, now: new Date().toISOString() };
+        return { sessionId: session.id, deviceId: device.id, targets: registeredTargets, now: new Date().toISOString() };
+
   }
 
   async reportJob(profileId: string, dto: SyncJobReportDto) {

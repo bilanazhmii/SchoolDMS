@@ -32,7 +32,6 @@ public sealed class FileMonitorService : IFileMonitorService
 
     private CancellationTokenSource? _cts;
     private Task? _processingTask;
-    private string? _headRoot;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="FileMonitorService"/> class.
@@ -62,13 +61,6 @@ public sealed class FileMonitorService : IFileMonitorService
             throw new DirectoryNotFoundException($"The monitoring root '{normalizedRoot}' was not found.");
         }
 
-        if (_headRoot is not null && !string.Equals(_headRoot, normalizedRoot, StringComparison.OrdinalIgnoreCase))
-        {
-            _logger.LogWarning("Ignoring additional sync root {Root}; only the configured head folder {HeadRoot} may be monitored.", normalizedRoot, _headRoot);
-            return Task.CompletedTask;
-        }
-
-        _headRoot ??= normalizedRoot;
         _cts ??= CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         if (_watchers.Any(w => string.Equals(w.Path, normalizedRoot, StringComparison.OrdinalIgnoreCase)))
 

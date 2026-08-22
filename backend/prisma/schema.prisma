@@ -1,585 +1,604 @@
 generator client {
-provider = "prisma-client-js"
+  provider = "prisma-client-js"
 }
 
 datasource db {
-provider = "postgresql"
-url = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 enum SyncStatus {
-PENDING
-SYNCED
-CONFLICT
-FAILED
-REMOTE_ONLY
-LOCAL_ONLY
+  PENDING
+  SYNCED
+  CONFLICT
+  FAILED
+  REMOTE_ONLY
+  LOCAL_ONLY
 }
 
 enum AuditAction {
-CREATE
-UPDATE
-DELETE
-RESTORE
-DOWNLOAD
-SHARE
-LOGIN
-LOGOUT
-PERMISSION_CHANGE
-ROLE_CHANGE
-SYNC
+  CREATE
+  UPDATE
+  DELETE
+  RESTORE
+  DOWNLOAD
+  SHARE
+  LOGIN
+  LOGOUT
+  PERMISSION_CHANGE
+  ROLE_CHANGE
+  SYNC
 }
 
 enum Visibility {
-PRIVATE
-RESTRICTED
-ORGANIZATION
-PUBLIC
+  PRIVATE
+  RESTRICTED
+  ORGANIZATION
+  PUBLIC
 }
 
 enum UserStatus {
-ACTIVE
-SUSPENDED
-INVITED
-DEACTIVATED
+  ACTIVE
+  SUSPENDED
+  INVITED
+  DEACTIVATED
 }
 
 enum PermissionType {
-ACTION
-RESOURCE
-SYSTEM
-DRIVE
+  ACTION
+  RESOURCE
+  SYSTEM
+  DRIVE
 }
 
 enum SharePermission {
-VIEW
-DOWNLOAD
-EDIT
-COMMENT
+  VIEW
+  DOWNLOAD
+  EDIT
+  COMMENT
 }
 
 enum DevicePlatform {
-WINDOWS
-MACOS
-LINUX
-ANDROID
-IOS
-UNKNOWN
+  WINDOWS
+  MACOS
+  LINUX
+  ANDROID
+  IOS
+  UNKNOWN
 }
 
 enum DeviceStatus {
-ONLINE
-OFFLINE
-UNKNOWN
+  ONLINE
+  OFFLINE
+  UNKNOWN
 }
 
 enum SessionStatus {
-ACTIVE
-COMPLETED
-FAILED
-CANCELLED
+  ACTIVE
+  COMPLETED
+  FAILED
+  CANCELLED
 }
 
 enum SyncOperation {
-UPLOAD
-DOWNLOAD
-DELETE
-MOVE
-RENAME
-CONFLICT
-RESOLVE
+  UPLOAD
+  DOWNLOAD
+  DELETE
+  MOVE
+  RENAME
+  CONFLICT
+  RESOLVE
 }
 
 enum AuditEntity {
-PROFILE
-ROLE
-PERMISSION
-DRIVE_ACCOUNT
-DEPARTMENT
-FOLDER
-FILE
-FILE_VERSION
-TAG
-SHARE_LINK
-QR_TOKEN
-DEVICE
-SYNC_SESSION
-SYNC_JOB
-NOTIFICATION
-SETTINGS
+  PROFILE
+  ROLE
+  PERMISSION
+  DRIVE_ACCOUNT
+  DEPARTMENT
+  FOLDER
+  FILE
+  FILE_VERSION
+  TAG
+  SHARE_LINK
+  QR_TOKEN
+  DEVICE
+  SYNC_SESSION
+  SYNC_JOB
+  NOTIFICATION
+  SETTINGS
 }
 
 enum NotificationType {
-SYNC_COMPLETED
-SYNC_FAILED
-FILE_SHARED
-FILE_DELETED
-CONFLICT_DETECTED
-ROLE_UPDATED
-SYSTEM_ALERT
+  SYNC_COMPLETED
+  SYNC_FAILED
+  FILE_SHARED
+  FILE_DELETED
+  CONFLICT_DETECTED
+  ROLE_UPDATED
+  SYSTEM_ALERT
 }
 
 enum ConnectionStatus {
-CONNECTED
-DISCONNECTED
-EXPIRED
-FAILED
+  CONNECTED
+  DISCONNECTED
+  EXPIRED
+  FAILED
 }
 
 model Profile {
-id String @id @default(uuid()) @db.Uuid
-supabaseAuthId String @unique @db.Uuid
-email String @db.VarChar(255)
-fullName String? @db.VarChar(255)
-avatar String? @db.VarChar(1024)
-phone String? @db.VarChar(50)
-department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-departmentId String? @db.Uuid
-status UserStatus @default(ACTIVE)
-lastLogin DateTime?
-metadata Json?
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
+  id             String      @id @default(uuid()) @db.Uuid
+  supabaseAuthId String      @unique @db.Uuid
+  email          String      @db.VarChar(255)
+  fullName       String?     @db.VarChar(255)
+  avatar         String?     @db.VarChar(1024)
+  phone          String?     @db.VarChar(50)
+  department     Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  departmentId   String?     @db.Uuid
+  status         UserStatus  @default(ACTIVE)
+  lastLogin      DateTime?
+  metadata       Json?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
 
-roles UserRole[]
-driveAccounts DriveAccount[]
-folders Folder[] @relation("ProfileFolders")
-files File[] @relation("ProfileFiles")
-fileVersions FileVersion[] @relation("ProfileFileVersions")
-favorites Favorite[]
-trashItems Trash[] @relation("ProfileTrash")
-shareLinks ShareLink[]
-devices Device[]
-syncSessions SyncSession[]
-auditLogs AuditLog[]
-notifications Notification[]
-remoteChanges RemoteChange[]
-settings Settings?
+  roles         UserRole[]
+  driveAccounts DriveAccount[]
+  folders       Folder[]       @relation("ProfileFolders")
+  files         File[]         @relation("ProfileFiles")
+  fileVersions  FileVersion[]  @relation("ProfileFileVersions")
+  favorites     Favorite[]
+  trashItems    Trash[]        @relation("ProfileTrash")
+  shareLinks    ShareLink[]
+  devices       Device[]
+  deviceTargets DeviceTarget[]
+  syncSessions  SyncSession[]
 
-@@index([email])
-@@index([status])
-@@index([departmentId])
+  auditLogs     AuditLog[]
+  notifications Notification[]
+  remoteChanges RemoteChange[]
+  settings      Settings?
+
+  @@index([email])
+  @@index([status])
+  @@index([departmentId])
 }
 
 model Role {
-id String @id @default(uuid()) @db.Uuid
-name String @unique @db.VarChar(120)
-description String? @db.Text
-isSystem Boolean @default(false)
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique @db.VarChar(120)
+  description String?  @db.Text
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-permissions RolePermission[]
-userRoles UserRole[]
+  permissions RolePermission[]
+  userRoles   UserRole[]
 }
 
 model Permission {
-id String @id @default(uuid()) @db.Uuid
-name String @unique @db.VarChar(180)
-type PermissionType @default(ACTION)
-description String? @db.Text
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
+  id          String         @id @default(uuid()) @db.Uuid
+  name        String         @unique @db.VarChar(180)
+  type        PermissionType @default(ACTION)
+  description String?        @db.Text
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
 
-rolePermissions RolePermission[]
+  rolePermissions RolePermission[]
 }
 
 model UserRole {
-id String @id @default(uuid()) @db.Uuid
-profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-profileId String @db.Uuid
-role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
-roleId String @db.Uuid
-assignedAt DateTime @default(now())
+  id         String   @id @default(uuid()) @db.Uuid
+  profile    Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profileId  String   @db.Uuid
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  roleId     String   @db.Uuid
+  assignedAt DateTime @default(now())
 
-@@unique([profileId, roleId])
-@@index([profileId])
-@@index([roleId])
+  @@unique([profileId, roleId])
+  @@index([profileId])
+  @@index([roleId])
 }
 
 model RolePermission {
-id String @id @default(uuid()) @db.Uuid
-role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
-roleId String @db.Uuid
-permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
-permissionId String @db.Uuid
-createdAt DateTime @default(now())
+  id           String     @id @default(uuid()) @db.Uuid
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  roleId       String     @db.Uuid
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  permissionId String     @db.Uuid
+  createdAt    DateTime   @default(now())
 
-@@unique([roleId, permissionId])
-@@index([roleId])
-@@index([permissionId])
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
 }
 
 model DriveAccount {
-id String @id @default(uuid()) @db.Uuid
-profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-profileId String @db.Uuid
-googleUserId String @db.VarChar(255)
-email String @db.VarChar(255)
-rootFolderId String? @db.VarChar(255)
-driveStartPageToken String? @db.Text
-refreshToken String? @db.Text
-refreshTokenExp DateTime?
-connectionStatus ConnectionStatus @default(CONNECTED)
-connectedAt DateTime?
-disconnectedAt DateTime?
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
+  id                  String           @id @default(uuid()) @db.Uuid
+  profile             Profile          @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profileId           String           @db.Uuid
+  googleUserId        String           @db.VarChar(255)
+  email               String           @db.VarChar(255)
+  rootFolderId        String?          @db.VarChar(255)
+  driveStartPageToken String?          @db.Text
+  refreshToken        String?          @db.Text
+  refreshTokenExp     DateTime?
+  connectionStatus    ConnectionStatus @default(CONNECTED)
+  connectedAt         DateTime?
+  disconnectedAt      DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
 
-@@index([profileId])
-@@index([googleUserId])
-@@index([email])
+  @@index([profileId])
+  @@index([googleUserId])
+  @@index([email])
 }
 
 model Department {
-id String @id @default(uuid()) @db.Uuid
-name String @unique @db.VarChar(255)
-code String? @db.VarChar(50)
-description String? @db.Text
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique @db.VarChar(255)
+  code        String?  @db.VarChar(50)
+  description String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-profiles Profile[]
+  profiles Profile[]
 }
 
 model Folder {
-id String @id @default(uuid()) @db.Uuid
-name String @db.VarChar(255)
-canonicalKey String? @unique @db.VarChar(255)
-owner Profile @relation("ProfileFolders", fields: [ownerId], references: [id], onDelete: Cascade)
-ownerId String @db.Uuid
-parentFolder Folder? @relation("FolderChildren", fields: [parentFolderId], references: [id], onDelete: Cascade)
-parentFolderId String? @db.Uuid
-children Folder[] @relation("FolderChildren")
-relativePath String @db.Text
-googleDriveFolderId String? @db.VarChar(255)
-color String? @db.VarChar(50)
-starred Boolean @default(false)
-visibility Visibility @default(PRIVATE)
-syncStatus SyncStatus @default(PENDING)
-lastSyncedAt DateTime?
-deletedAt DateTime?
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
+  id                  String     @id @default(uuid()) @db.Uuid
+  name                String     @db.VarChar(255)
+  canonicalKey        String?    @unique @db.VarChar(255)
+  owner               Profile    @relation("ProfileFolders", fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId             String     @db.Uuid
+  parentFolder        Folder?    @relation("FolderChildren", fields: [parentFolderId], references: [id], onDelete: Cascade)
+  parentFolderId      String?    @db.Uuid
+  children            Folder[]   @relation("FolderChildren")
+  relativePath        String     @db.Text
+  googleDriveFolderId String?    @db.VarChar(255)
+  color               String?    @db.VarChar(50)
+  starred             Boolean    @default(false)
+  visibility          Visibility @default(PRIVATE)
+  syncStatus          SyncStatus @default(PENDING)
+  lastSyncedAt        DateTime?
+  deletedAt           DateTime?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
 
-files File[]
-favorites Favorite[]
-trashItems Trash[]
-syncJobs SyncJob[]
-qrTokens QRToken[]
-shareLinks ShareLink[]
+  files      File[]
+  favorites  Favorite[]
+  trashItems Trash[]
+  syncJobs   SyncJob[]
+  qrTokens   QRToken[]
+  shareLinks ShareLink[]
 
-@@index([ownerId])
-@@index([parentFolderId])
-@@index([googleDriveFolderId])
-@@index([visibility])
-@@index([syncStatus])
-@@index([deletedAt])
-@@index([relativePath])
+  @@index([ownerId])
+  @@index([parentFolderId])
+  @@index([googleDriveFolderId])
+  @@index([visibility])
+  @@index([syncStatus])
+  @@index([deletedAt])
+  @@index([relativePath])
 }
 
 model File {
-id String @id @default(uuid()) @db.Uuid
-name String @db.VarChar(255)
-extension String? @db.VarChar(50)
-owner Profile @relation("ProfileFiles", fields: [ownerId], references: [id], onDelete: Cascade)
-ownerId String @db.Uuid
-folder Folder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
-folderId String? @db.Uuid
-relativePath String @db.Text
-googleDriveFileId String? @db.VarChar(255)
-mimeType String @db.VarChar(255)
-size BigInt @db.BigInt
-sha256 String? @db.VarChar(64)
-md5 String? @db.VarChar(32)
-versionNumber Int @default(1)
-favorite Boolean @default(false)
-locked Boolean @default(false)
-visibility Visibility @default(PRIVATE)
-syncStatus SyncStatus @default(PENDING)
-lastSyncedAt DateTime?
-deletedAt DateTime?
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
+  id                String     @id @default(uuid()) @db.Uuid
+  name              String     @db.VarChar(255)
+  extension         String?    @db.VarChar(50)
+  owner             Profile    @relation("ProfileFiles", fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId           String     @db.Uuid
+  folder            Folder?    @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  folderId          String?    @db.Uuid
+  relativePath      String     @db.Text
+  googleDriveFileId String?    @db.VarChar(255)
+  mimeType          String     @db.VarChar(255)
+  size              BigInt     @db.BigInt
+  sha256            String?    @db.VarChar(64)
+  md5               String?    @db.VarChar(32)
+  versionNumber     Int        @default(1)
+  favorite          Boolean    @default(false)
+  locked            Boolean    @default(false)
+  visibility        Visibility @default(PRIVATE)
+  syncStatus        SyncStatus @default(PENDING)
+  lastSyncedAt      DateTime?
+  deletedAt         DateTime?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 
-versions FileVersion[]
-tags FileTag[]
-favorites Favorite[]
-trashItems Trash[]
-syncJobs SyncJob[]
-qrTokens QRToken[]
-shareLinks ShareLink[]
+  versions   FileVersion[]
+  tags       FileTag[]
+  favorites  Favorite[]
+  trashItems Trash[]
+  syncJobs   SyncJob[]
+  qrTokens   QRToken[]
+  shareLinks ShareLink[]
 
-@@index([ownerId])
-@@index([folderId])
-@@index([googleDriveFileId])
-@@index([syncStatus])
-@@index([deletedAt])
-@@index([relativePath])
+  @@index([ownerId])
+  @@index([folderId])
+  @@index([googleDriveFileId])
+  @@index([syncStatus])
+  @@index([deletedAt])
+  @@index([relativePath])
 }
 
 model FileVersion {
-id String @id @default(uuid()) @db.Uuid
-file File @relation(fields: [fileId], references: [id], onDelete: Cascade)
-fileId String @db.Uuid
-versionNumber Int
-createdBy Profile? @relation("ProfileFileVersions", fields: [createdById], references: [id], onDelete: SetNull)
-createdById String? @db.Uuid
-driveFileId String? @db.VarChar(255)
-storagePath String? @db.Text
-sha256 String? @db.VarChar(64)
-md5 String? @db.VarChar(32)
-mimeType String? @db.VarChar(255)
-size BigInt? @db.BigInt
-syncStatus SyncStatus @default(PENDING)
-lastSyncedAt DateTime?
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
+  id            String     @id @default(uuid()) @db.Uuid
+  file          File       @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  fileId        String     @db.Uuid
+  versionNumber Int
+  createdBy     Profile?   @relation("ProfileFileVersions", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById   String?    @db.Uuid
+  driveFileId   String?    @db.VarChar(255)
+  storagePath   String?    @db.Text
+  sha256        String?    @db.VarChar(64)
+  md5           String?    @db.VarChar(32)
+  mimeType      String?    @db.VarChar(255)
+  size          BigInt?    @db.BigInt
+  syncStatus    SyncStatus @default(PENDING)
+  lastSyncedAt  DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
 
-@@index([fileId])
-@@index([versionNumber])
-@@index([syncStatus])
+  @@index([fileId])
+  @@index([versionNumber])
+  @@index([syncStatus])
 }
 
 model Tag {
-id String @id @default(uuid()) @db.Uuid
-name String @unique @db.VarChar(120)
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique @db.VarChar(120)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-fileTags FileTag[]
+  fileTags FileTag[]
 }
 
 model FileTag {
-id String @id @default(uuid()) @db.Uuid
-file File @relation(fields: [fileId], references: [id], onDelete: Cascade)
-fileId String @db.Uuid
-tag Tag @relation(fields: [tagId], references: [id], onDelete: Cascade)
-tagId String @db.Uuid
-createdAt DateTime @default(now())
+  id        String   @id @default(uuid()) @db.Uuid
+  file      File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  fileId    String   @db.Uuid
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  tagId     String   @db.Uuid
+  createdAt DateTime @default(now())
 
-@@unique([fileId, tagId])
-@@index([fileId])
-@@index([tagId])
+  @@unique([fileId, tagId])
+  @@index([fileId])
+  @@index([tagId])
 }
 
 model Favorite {
-id String @id @default(uuid()) @db.Uuid
-profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-profileId String @db.Uuid
-file File? @relation(fields: [fileId], references: [id], onDelete: Cascade)
-fileId String? @db.Uuid
-folder Folder? @relation(fields: [folderId], references: [id], onDelete: Cascade)
-folderId String? @db.Uuid
-createdAt DateTime @default(now())
+  id        String   @id @default(uuid()) @db.Uuid
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profileId String   @db.Uuid
+  file      File?    @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  fileId    String?  @db.Uuid
+  folder    Folder?  @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  folderId  String?  @db.Uuid
+  createdAt DateTime @default(now())
 
-@@index([profileId])
-@@index([fileId])
-@@index([folderId])
+  @@index([profileId])
+  @@index([fileId])
+  @@index([folderId])
 }
 
 model Trash {
-id String @id @default(uuid()) @db.Uuid
-profile Profile @relation("ProfileTrash", fields: [profileId], references: [id], onDelete: Cascade)
-profileId String @db.Uuid
-file File? @relation(fields: [fileId], references: [id], onDelete: Cascade)
-fileId String? @db.Uuid
-folder Folder? @relation(fields: [folderId], references: [id], onDelete: Cascade)
-folderId String? @db.Uuid
-deletedAt DateTime @default(now())
-restoredAt DateTime?
-reason String? @db.Text
-createdAt DateTime @default(now())
+  id         String    @id @default(uuid()) @db.Uuid
+  profile    Profile   @relation("ProfileTrash", fields: [profileId], references: [id], onDelete: Cascade)
+  profileId  String    @db.Uuid
+  file       File?     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  fileId     String?   @db.Uuid
+  folder     Folder?   @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  folderId   String?   @db.Uuid
+  deletedAt  DateTime  @default(now())
+  restoredAt DateTime?
+  reason     String?   @db.Text
+  createdAt  DateTime  @default(now())
 
-@@index([profileId])
-@@index([fileId])
-@@index([folderId])
-@@index([deletedAt])
+  @@index([profileId])
+  @@index([fileId])
+  @@index([folderId])
+  @@index([deletedAt])
 }
 
 model RemoteChange {
-id String @id @default(uuid()) @db.Uuid
-profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-profileId String @db.Uuid
-operation SyncOperation
-fileId String? @db.Uuid
-folderId String? @db.Uuid
-relativePath String? @db.Text
-oldRelativePath String? @db.Text
-name String? @db.VarChar(255)
-mimeType String? @db.VarChar(255)
-size BigInt?
-sha256 String? @db.VarChar(64)
-createdAt DateTime @default(now())
+  id              String        @id @default(uuid()) @db.Uuid
+  profile         Profile       @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profileId       String        @db.Uuid
+  operation       SyncOperation
+  fileId          String?       @db.Uuid
+  folderId        String?       @db.Uuid
+  relativePath    String?       @db.Text
+  oldRelativePath String?       @db.Text
+  name            String?       @db.VarChar(255)
+  mimeType        String?       @db.VarChar(255)
+  size            BigInt?
+  sha256          String?       @db.VarChar(64)
+  createdAt       DateTime      @default(now())
 
-@@index([profileId, createdAt])
-@@index([fileId])
-@@index([folderId])
+  @@index([profileId, createdAt])
+  @@index([fileId])
+  @@index([folderId])
 }
 
 model Device {
+  id               String         @id @default(uuid()) @db.Uuid
+  profile          Profile        @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profileId        String         @db.Uuid
+  deviceIdentifier String         @unique @db.VarChar(200)
+  hostname         String?        @db.VarChar(255)
+  machineName      String?        @db.VarChar(255)
+  platform         DevicePlatform @default(WINDOWS)
+  clientVersion    String?        @db.VarChar(100)
+  lastSeen         DateTime?
+  status           DeviceStatus   @default(UNKNOWN)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
-id String @id @default(uuid()) @db.Uuid
-profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-profileId String @db.Uuid
-deviceIdentifier String @unique @db.VarChar(200)
-hostname String? @db.VarChar(255)
-machineName String? @db.VarChar(255)
-platform DevicePlatform @default(WINDOWS)
-clientVersion String? @db.VarChar(100)
-lastSeen DateTime?
-status DeviceStatus @default(UNKNOWN)
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
+  syncSessions SyncSession[]
+  targets      DeviceTarget[]
+  auditLogs    AuditLog[]
 
-syncSessions SyncSession[]
-auditLogs AuditLog[]
+  @@index([profileId])
+  @@index([platform])
+  @@index([status])
+}
 
-@@index([profileId])
-@@index([platform])
-@@index([status])
+model DeviceTarget {
+  id           String   @id @default(uuid()) @db.Uuid
+  profile      Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profileId    String   @db.Uuid
+  device       Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  deviceId     String   @db.Uuid
+  relativeRoot String   @db.VarChar(255)
+  localPath    String   @db.Text
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([deviceId, relativeRoot])
+  @@index([profileId, active])
+  @@index([deviceId, active])
 }
 
 model SyncSession {
-id String @id @default(uuid()) @db.Uuid
-profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-profileId String @db.Uuid
-device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-deviceId String @db.Uuid
-sessionKey String @unique @db.VarChar(255)
-status SessionStatus @default(ACTIVE)
-startedAt DateTime @default(now())
-endedAt DateTime?
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
+  id         String        @id @default(uuid()) @db.Uuid
+  profile    Profile       @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profileId  String        @db.Uuid
+  device     Device        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  deviceId   String        @db.Uuid
+  sessionKey String        @unique @db.VarChar(255)
+  status     SessionStatus @default(ACTIVE)
+  startedAt  DateTime      @default(now())
+  endedAt    DateTime?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
 
-syncJobs SyncJob[]
+  syncJobs SyncJob[]
 
-@@index([profileId])
-@@index([deviceId])
-@@index([status])
-@@index([startedAt])
+  @@index([profileId])
+  @@index([deviceId])
+  @@index([status])
+  @@index([startedAt])
 }
 
 model SyncJob {
-id String @id @default(uuid()) @db.Uuid
-session SyncSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-sessionId String @db.Uuid
-operation SyncOperation @default(UPLOAD)
-file File? @relation(fields: [fileId], references: [id], onDelete: SetNull)
-fileId String? @db.Uuid
-folder Folder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
-folderId String? @db.Uuid
-status SyncStatus @default(PENDING)
-retryCount Int @default(0)
-priority Int @default(0)
-startedAt DateTime?
-finishedAt DateTime?
-message String? @db.Text
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
+  id         String        @id @default(uuid()) @db.Uuid
+  session    SyncSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionId  String        @db.Uuid
+  operation  SyncOperation @default(UPLOAD)
+  file       File?         @relation(fields: [fileId], references: [id], onDelete: SetNull)
+  fileId     String?       @db.Uuid
+  folder     Folder?       @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  folderId   String?       @db.Uuid
+  status     SyncStatus    @default(PENDING)
+  retryCount Int           @default(0)
+  priority   Int           @default(0)
+  startedAt  DateTime?
+  finishedAt DateTime?
+  message    String?       @db.Text
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
 
-@@index([sessionId])
-@@index([fileId])
-@@index([folderId])
-@@index([operation])
-@@index([status])
-@@index([priority])
+  @@index([sessionId])
+  @@index([fileId])
+  @@index([folderId])
+  @@index([operation])
+  @@index([status])
+  @@index([priority])
 }
 
 model QRToken {
-id String @id @default(uuid()) @db.Uuid
-token String @unique @db.VarChar(255)
-entity AuditEntity
-file File? @relation(fields: [fileId], references: [id], onDelete: Cascade)
-fileId String? @db.Uuid
-folder Folder? @relation(fields: [folderId], references: [id], onDelete: Cascade)
-folderId String? @db.Uuid
-expiresAt DateTime?
-redeemedAt DateTime?
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
+  id         String      @id @default(uuid()) @db.Uuid
+  token      String      @unique @db.VarChar(255)
+  entity     AuditEntity
+  file       File?       @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  fileId     String?     @db.Uuid
+  folder     Folder?     @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  folderId   String?     @db.Uuid
+  expiresAt  DateTime?
+  redeemedAt DateTime?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
 
-@@index([fileId])
-@@index([folderId])
-@@index([expiresAt])
+  @@index([fileId])
+  @@index([folderId])
+  @@index([expiresAt])
 }
 
 model ShareLink {
-id String @id @default(uuid()) @db.Uuid
-publicToken String @unique @db.VarChar(255)
-file File? @relation(fields: [fileId], references: [id], onDelete: Cascade)
-fileId String? @db.Uuid
-folder Folder? @relation(fields: [folderId], references: [id], onDelete: Cascade)
-folderId String? @db.Uuid
-passwordHash String? @db.Text
-expiresAt DateTime?
-downloadLimit Int? @default(0)
-downloadCount Int @default(0)
-permission SharePermission @default(VIEW)
-description String? @db.Text
-createdBy Profile? @relation(fields: [createdById], references: [id], onDelete: SetNull)
-createdById String? @db.Uuid
-isActive Boolean @default(true)
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
+  id            String          @id @default(uuid()) @db.Uuid
+  publicToken   String          @unique @db.VarChar(255)
+  file          File?           @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  fileId        String?         @db.Uuid
+  folder        Folder?         @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  folderId      String?         @db.Uuid
+  passwordHash  String?         @db.Text
+  expiresAt     DateTime?
+  downloadLimit Int?            @default(0)
+  downloadCount Int             @default(0)
+  permission    SharePermission @default(VIEW)
+  description   String?         @db.Text
+  createdBy     Profile?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdById   String?         @db.Uuid
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
 
-@@index([fileId])
-@@index([folderId])
-@@index([createdById])
-@@index([expiresAt])
+  @@index([fileId])
+  @@index([folderId])
+  @@index([createdById])
+  @@index([expiresAt])
 }
 
 model AuditLog {
-id String @id @default(uuid()) @db.Uuid
-profile Profile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
-profileId String? @db.Uuid
-action AuditAction
-entity AuditEntity
-entityId String? @db.Uuid
-ipAddress String? @db.VarChar(100)
-userAgent String? @db.VarChar(1024)
-device Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
-deviceId String? @db.Uuid
-details Json?
-createdAt DateTime @default(now())
+  id        String      @id @default(uuid()) @db.Uuid
+  profile   Profile?    @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  profileId String?     @db.Uuid
+  action    AuditAction
+  entity    AuditEntity
+  entityId  String?     @db.Uuid
+  ipAddress String?     @db.VarChar(100)
+  userAgent String?     @db.VarChar(1024)
+  device    Device?     @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  deviceId  String?     @db.Uuid
+  details   Json?
+  createdAt DateTime    @default(now())
 
-@@index([profileId])
-@@index([deviceId])
-@@index([entity, entityId])
-@@index([createdAt])
+  @@index([profileId])
+  @@index([deviceId])
+  @@index([entity, entityId])
+  @@index([createdAt])
 }
 
 model Notification {
-id String @id @default(uuid()) @db.Uuid
-profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-profileId String @db.Uuid
-type NotificationType @default(SYNC_COMPLETED)
-title String @db.VarChar(255)
-message String? @db.Text
-details Json?
-isRead Boolean @default(false)
-relatedEntity AuditEntity?
-relatedEntityId String? @db.Uuid
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
-deliveredAt DateTime?
+  id              String           @id @default(uuid()) @db.Uuid
+  profile         Profile          @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profileId       String           @db.Uuid
+  type            NotificationType @default(SYNC_COMPLETED)
+  title           String           @db.VarChar(255)
+  message         String?          @db.Text
+  details         Json?
+  isRead          Boolean          @default(false)
+  relatedEntity   AuditEntity?
+  relatedEntityId String?          @db.Uuid
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  deliveredAt     DateTime?
 
-@@index([profileId])
-@@index([type])
-@@index([isRead])
-@@index([createdAt])
+  @@index([profileId])
+  @@index([type])
+  @@index([isRead])
+  @@index([createdAt])
 }
 
 model Settings {
-id String @id @default(uuid()) @db.Uuid
-profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-profileId String @unique @db.Uuid
-theme String @db.VarChar(50) @default("system")
-language String @db.VarChar(20) @default("en")
-timezone String @db.VarChar(100) @default("UTC")
-notificationSettings Json?
-preferences Json?
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
+  id                   String   @id @default(uuid()) @db.Uuid
+  profile              Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profileId            String   @unique @db.Uuid
+  theme                String   @default("system") @db.VarChar(50)
+  language             String   @default("en") @db.VarChar(20)
+  timezone             String   @default("UTC") @db.VarChar(100)
+  notificationSettings Json?
+  preferences          Json?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 }

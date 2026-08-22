@@ -104,14 +104,27 @@
 
                 <Border Background="White" BorderBrush="#DCE4EE" BorderThickness="1" CornerRadius="12" Padding="22" Margin="0,0,0,14">
                     <StackPanel>
-                        <TextBlock Text="Sync head folder" FontSize="16" FontWeight="SemiBold" />
-                        <TextBlock Text="Only this folder and its real local subfolders are synchronized. Files and folders elsewhere on the drive are ignored." Foreground="#65758B" FontSize="12" Margin="0,5,0,14" TextWrapping="Wrap" />
-                        <TextBlock Text="Selected head folder" FontSize="12" Foreground="#65758B" />
+                        <TextBlock Text="Sync target folders" FontSize="16" FontWeight="SemiBold" />
+                        <TextBlock Text="Only these selected folders and their real local subfolders are synchronized. Files elsewhere on the drive are ignored." Foreground="#65758B" FontSize="12" Margin="0,5,0,14" TextWrapping="Wrap" />
+                        <TextBlock Text="Primary target folder" FontSize="12" Foreground="#65758B" />
                         <DockPanel Margin="0,5,0,8">
                             <Button DockPanel.Dock="Right" Content="Browse" Command="{Binding BrowseFolderCommand}" Margin="10,0,0,0" />
                             <TextBox Text="{Binding SyncFolder, UpdateSourceTrigger=PropertyChanged}" Margin="0" />
                         </DockPanel>
-                        <TextBlock Text="The client never treats the drive root as the sync target unless you explicitly choose that root." Foreground="#65758B" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap" />
+                        <ItemsControl ItemsSource="{Binding ExtraFolders}" Margin="0,0,0,6">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="#F7F9FC" BorderBrush="#E1E8F0" BorderThickness="1" CornerRadius="6" Padding="9,5" Margin="0,0,0,6">
+                                        <DockPanel>
+                                            <Button DockPanel.Dock="Right" Content="Remove" Command="{Binding DataContext.RemoveFolderCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" Padding="9,5" Margin="8,0,0,0" />
+                                            <TextBlock Text="{Binding}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                        </DockPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Button Content="Add another target folder" Command="{Binding AddFolderCommand}" HorizontalAlignment="Left" />
+                        <TextBlock Text="Each laptop target is registered with its own Device ID. Removing one target stops only that target on this laptop; it does not delete the web folder." Foreground="#65758B" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap" />
                     </StackPanel>
                 </Border>
 

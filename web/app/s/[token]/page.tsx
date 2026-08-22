@@ -82,8 +82,10 @@ function FileView({ data, token }: { data: PublicShareFile; token: string }) {
     fetchSharedText(token).then(setText).catch(() => setEditMessage('File ini belum dapat dibuka sebagai teks.'));
   }, [editable, token]);
 
-  async function save() {
+    async function save() {
+    if (!window.confirm('Konfirmasi perubahan\n\nPerubahan ini akan disimpan sebagai versi baru di web dan dikirim ke laptop yang terhubung. Lanjutkan?')) return;
     setEditLoading(true);
+
     setEditMessage(null);
     try {
       await saveSharedText(token, text);

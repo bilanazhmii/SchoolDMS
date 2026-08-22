@@ -1,7 +1,9 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+
 using DocumentSyncClient.Core.Interfaces;
 using DocumentSyncClient.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -25,8 +27,10 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
     private Task? _workerTask;
     private Task? _heartbeatTask;
     private int _started;
+    private bool _applyingRemoteChanges;
+    private DateTimeOffset _remoteEventSuppressUntil;
 
-    public bool IsApplyingRemoteChanges { get; private set; }
+    public bool IsApplyingRemoteChanges => _applyingRemoteChanges || DateTimeOffset.UtcNow < _remoteEventSuppressUntil;
 
     /// <summary>
     /// Raised after a job is completed or failed (for live UI indicators).
@@ -159,18 +163,40 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
 
     private static string? BuildRelativePath(string filePath, AppSettings settings)
     {
-        if (string.IsNullOrWhiteSpace(filePath) || string.IsNullOrWhiteSpace(settings.SyncFolder)) return null;
+        if (string.IsNullOrWhiteSpace(filePath)) return null;
 
-        var fullRoot = NormalizePath(settings.SyncFolder);
         var fullFile = NormalizePath(filePath);
-        if (!IsPathWithinRoot(fullFile, fullRoot, allowRoot: true)) return null;
-
-        var rootName = Path.GetFileName(fullRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        var inside = Path.GetRelativePath(fullRoot, fullFile).Replace('\\', '/');
-        return string.IsNullOrWhiteSpace(rootName) || inside == "." ? rootName : $"{rootName}/{inside}";
+        foreach (var root in GetConfiguredRoots(settings))
+        {
+            var fullRoot = NormalizePath(root);
+            if (!IsPathWithinRoot(fullFile, fullRoot, allowRoot: true)) continue;
+            var rootName = GetTargetRelativeRoot(settings, fullRoot);
+            var inside = Path.GetRelativePath(fullRoot, fullFile).Replace('\\', '/');
+            return string.IsNullOrWhiteSpace(rootName) || inside == "." ? rootName : $"{rootName}/{inside}";
+        }
+        return null;
     }
 
     private static string NormalizePath(string path) => Path.GetFullPath(path.Trim());
+
+    private static IEnumerable<string> GetConfiguredRoots(AppSettings settings)
+        => new[] { settings.SyncFolder }
+            .Concat(settings.SyncFolders ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+    private static string GetTargetRelativeRoot(AppSettings settings, string normalizedRoot)
+    {
+        var baseName = Path.GetFileName(normalizedRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        var sameNamedRoots = GetConfiguredRoots(settings)
+            .Select(NormalizePath)
+            .Where(root => string.Equals(Path.GetFileName(root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)), baseName, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (sameNamedRoots.Length <= 1) return baseName;
+
+        var digest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalizedRoot))).Substring(0, 8);
+        return $"{baseName} ({digest})";
+    }
 
     private static bool IsPathWithinRoot(string path, string root, bool allowRoot)
     {
@@ -183,27 +209,29 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
         public async Task SyncFolderAsync(string rootPath, CancellationToken cancellationToken = default)
     {
         var settings = await _settingsService.LoadAsync(cancellationToken);
-        if (string.IsNullOrWhiteSpace(rootPath) || string.IsNullOrWhiteSpace(settings.SyncFolder) || !Directory.Exists(rootPath))
+        if (string.IsNullOrWhiteSpace(rootPath) || !Directory.Exists(rootPath))
         {
             return;
         }
 
-                var configuredRoot = NormalizePath(settings.SyncFolder);
-        var requestedRoot = NormalizePath(rootPath);
+                        var requestedRoot = NormalizePath(rootPath);
+        var configuredRoot = GetConfiguredRoots(settings)
+            .Select(NormalizePath)
+            .FirstOrDefault(root => string.Equals(root, requestedRoot, StringComparison.OrdinalIgnoreCase));
+        if (configuredRoot is null)
+        {
+            _logger.LogWarning("Ignoring initial sync request outside configured target folders: {Path}", rootPath);
+            return;
+        }
+
         if (string.Equals(Path.GetPathRoot(configuredRoot), configuredRoot, StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogWarning("Ignoring drive-root sync target {Root}; choose a folder below the drive root.", configuredRoot);
             return;
         }
 
-        if (!IsPathWithinRoot(requestedRoot, configuredRoot, allowRoot: true))
-
-        {
-            _logger.LogWarning("Ignoring initial sync request outside the configured head folder: {Path}", rootPath);
-            return;
-        }
-
         var files = Directory.EnumerateFiles(requestedRoot, "*", SearchOption.AllDirectories).ToArray();
+
         var directories = Directory.EnumerateDirectories(requestedRoot, "*", SearchOption.AllDirectories).ToArray();
         var folderPaths = new[] { requestedRoot }.Concat(directories).ToArray();
 
@@ -269,14 +297,34 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
         var session = await GetValidSessionAsync(cancellationToken);
         if (session is null) return;
 
-        var settings = await _settingsService.LoadAsync(cancellationToken);
+                var settings = await _settingsService.LoadAsync(cancellationToken);
         if (string.IsNullOrWhiteSpace(settings.DeviceId))
         {
             settings.DeviceId = Guid.NewGuid().ToString("N");
             await _settingsService.SaveAsync(settings, cancellationToken);
         }
 
+        var targets = GetConfiguredRoots(settings)
+            .Select(root => new
+            {
+                relativeRoot = GetTargetRelativeRoot(settings, NormalizePath(root)),
+                localPath = NormalizePath(root),
+                active = true,
+            })
+            .Where(target => !string.IsNullOrWhiteSpace(target.relativeRoot) &&
+                            !string.Equals(Path.GetPathRoot(target.localPath), target.localPath, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        var targetSignature = string.Join("|", targets.Select(target => $"{target.relativeRoot}={target.localPath}"));
+        if (!string.Equals(settings.SyncTargetSignature, targetSignature, StringComparison.Ordinal))
+        {
+            settings.SyncTargetSignature = targetSignature;
+            settings.RemoteSyncCursor = string.Empty;
+            await _settingsService.SaveAsync(settings, cancellationToken);
+        }
+
         var baseUrl = (string.IsNullOrWhiteSpace(settings.ServerUrl)
+
             ? "http://localhost:3000"
             : settings.ServerUrl).TrimEnd('/');
 
@@ -290,8 +338,10 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
                     deviceIdentifier = settings.DeviceId,
                     hostname = Environment.MachineName,
                     machineName = Environment.MachineName,
-                    clientVersion = typeof(SyncEngine).Assembly.GetName().Version?.ToString() ?? "1.0.0",
+                                        clientVersion = typeof(SyncEngine).Assembly.GetName().Version?.ToString() ?? "1.0.0",
+                    targets,
                 },
+
                 cancellationToken);
 
             if (response.IsSuccessStatusCode)
@@ -650,15 +700,18 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
             var cursor = cursorProperty.GetString();
             if (string.IsNullOrWhiteSpace(cursor)) return;
 
-            IsApplyingRemoteChanges = true;
+                        _applyingRemoteChanges = true;
             var applied = true;
-            if (data.TryGetProperty("changes", out var changes) && changes.ValueKind == JsonValueKind.Array)
+
+                        if (data.TryGetProperty("changes", out var changes) && changes.ValueKind == JsonValueKind.Array)
             {
                 foreach (var change in changes.EnumerateArray())
                 {
+                    if (!IsChangeForConfiguredTargets(settings, change)) continue;
                     try
                     {
                         await ApplyRemoteChangeAsync(client, settings, change, cancellationToken);
+
                     }
                     catch (Exception ex)
                     {
@@ -668,7 +721,8 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
                 }
             }
             await Task.Delay(TimeSpan.FromMilliseconds(750), cancellationToken);
-            IsApplyingRemoteChanges = false;
+            _applyingRemoteChanges = false;
+            _remoteEventSuppressUntil = DateTimeOffset.UtcNow.AddSeconds(2);
 
             if (applied)
             {
@@ -678,32 +732,73 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            IsApplyingRemoteChanges = false;
+                        _applyingRemoteChanges = false;
+            _remoteEventSuppressUntil = DateTimeOffset.UtcNow.AddSeconds(2);
             throw;
+
         }
         catch (Exception ex)
         {
-            IsApplyingRemoteChanges = false;
+                        _applyingRemoteChanges = false;
+            _remoteEventSuppressUntil = DateTimeOffset.UtcNow.AddSeconds(2);
             _logger.LogWarning("Remote change pull failed: {Message}", ex.Message);
+
         }
     }
 
-    private async Task ApplyRemoteChangeAsync(HttpClient client, AppSettings settings, JsonElement change, CancellationToken cancellationToken)
+        private static bool IsChangeForConfiguredTargets(AppSettings settings, JsonElement change)
     {
-        var operation = GetString(change, "operation")?.ToUpperInvariant();
+        var paths = new[] { GetString(change, "relativePath"), GetString(change, "oldRelativePath") }
+            .Where(path => !string.IsNullOrWhiteSpace(path));
+        var roots = GetConfiguredRoots(settings)
+            .Select(root => GetTargetRelativeRoot(settings, NormalizePath(root)))
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return paths.Any(path =>
+        {
+            var parts = path!.Replace('\\', '/').Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries).ToList();
+            if (parts.Count > 0 && string.Equals(parts[0], "My Files", StringComparison.OrdinalIgnoreCase)) parts.RemoveAt(0);
+            return parts.Count > 0 && roots.Contains(parts[0]);
+        });
+    }
+
+    private async Task ApplyRemoteChangeAsync(HttpClient client, AppSettings settings, JsonElement change, CancellationToken cancellationToken)
+
+    {
+                var operation = GetString(change, "operation")?.ToUpperInvariant();
         var relativePath = GetString(change, "relativePath");
         var oldRelativePath = GetString(change, "oldRelativePath");
         var fileId = GetString(change, "fileId");
         var folderId = GetString(change, "folderId");
+        var remoteSha256 = GetString(change, "sha256");
+
         var localPath = ResolveLocalPath(settings, relativePath);
         var oldLocalPath = ResolveLocalPath(settings, oldRelativePath);
 
-                var localRoot = string.IsNullOrWhiteSpace(settings.SyncFolder) ? null : NormalizePath(settings.SyncFolder);
+                var localRoots = GetConfiguredRoots(settings).Select(NormalizePath).ToArray();
         if (operation == "DELETE")
         {
-            if (localPath is not null && localRoot is not null && string.Equals(localPath, localRoot, StringComparison.OrdinalIgnoreCase))
+            if (localPath is not null && localRoots.Any(root => string.Equals(localPath, root, StringComparison.OrdinalIgnoreCase)))
             {
-                _logger.LogWarning("Ignoring remote delete of the configured local head folder {Root}.", localRoot);
+                _logger.LogWarning("Ignoring remote delete of a configured local target root {Root}.", localPath);
+                return;
+            }
+            if (localPath is not null && File.Exists(localPath))
+            {
+                if (!string.IsNullOrWhiteSpace(remoteSha256))
+                {
+                    var localSha256 = await ComputeSha256Async(localPath, cancellationToken);
+                    if (!string.Equals(localSha256, remoteSha256, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger.LogWarning("Preserving local edit instead of applying remote delete for {Path}.", localPath);
+                        await QueueFileChangeAsync(localPath, SyncOperationType.Update, cancellationToken: cancellationToken);
+                        return;
+                    }
+                }
+            }
+            if (localPath is not null && Directory.Exists(localPath))
+            {
+                _logger.LogWarning("Preserving local folder instead of applying remote delete for {Path}.", localPath);
                 return;
             }
             DeleteLocalPath(localPath);
@@ -712,23 +807,31 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
 
         if (operation is "MOVE" or "RENAME")
         {
-            if (oldLocalPath is not null && localPath is not null && localRoot is not null &&
-                (string.Equals(oldLocalPath, localRoot, StringComparison.OrdinalIgnoreCase) || string.Equals(localPath, localRoot, StringComparison.OrdinalIgnoreCase)))
+            if (oldLocalPath is not null && localPath is not null &&
+                (localRoots.Any(root => string.Equals(oldLocalPath, root, StringComparison.OrdinalIgnoreCase)) || localRoots.Any(root => string.Equals(localPath, root, StringComparison.OrdinalIgnoreCase))))
             {
-                _logger.LogWarning("Ignoring remote move/rename of the configured local head folder {Root}.", localRoot);
+                _logger.LogWarning("Ignoring remote move/rename of a configured local target root.");
                 return;
             }
 
-            if (oldLocalPath is not null && localPath is not null && !string.Equals(oldLocalPath, localPath, StringComparison.OrdinalIgnoreCase))
-
+                        if (oldLocalPath is not null && localPath is not null && !string.Equals(oldLocalPath, localPath, StringComparison.OrdinalIgnoreCase))
             {
+                if (File.Exists(localPath) || Directory.Exists(localPath))
+                {
+                    _logger.LogWarning("Preserving local destination instead of overwriting it during remote move {Path}.", localPath);
+                    return;
+                }
                 Directory.CreateDirectory(Path.GetDirectoryName(localPath)!);
                 if (Directory.Exists(oldLocalPath))
                 {
-                    if (!Directory.Exists(localPath)) Directory.Move(oldLocalPath, localPath);
+                    Directory.Move(oldLocalPath, localPath);
                 }
-                else if (File.Exists(oldLocalPath)) File.Move(oldLocalPath, localPath, true);
+                else if (File.Exists(oldLocalPath))
+                {
+                    File.Move(oldLocalPath, localPath);
+                }
             }
+
             else if (fileId is not null && localPath is not null)
             {
                 await DownloadRemoteFileAsync(client, fileId, localPath, cancellationToken);
@@ -742,10 +845,22 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
             return;
         }
 
-        if (operation == "UPLOAD" && fileId is not null && localPath is not null)
+                if (operation == "UPLOAD" && fileId is not null && localPath is not null)
         {
+            if (File.Exists(localPath))
+            {
+                if (!string.IsNullOrWhiteSpace(remoteSha256))
+                {
+                    var localSha256 = await ComputeSha256Async(localPath, cancellationToken);
+                    if (string.Equals(localSha256, remoteSha256, StringComparison.OrdinalIgnoreCase)) return;
+                }
+                _logger.LogWarning("Preserving local edit instead of overwriting {Path} with a remote version.", localPath);
+                await QueueFileChangeAsync(localPath, SyncOperationType.Update, cancellationToken: cancellationToken);
+                return;
+            }
             await DownloadRemoteFileAsync(client, fileId, localPath, cancellationToken);
         }
+
     }
 
     private static async Task DownloadRemoteFileAsync(HttpClient client, string fileId, string localPath, CancellationToken cancellationToken)
@@ -769,25 +884,28 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
 
     private static string? ResolveLocalPath(AppSettings settings, string? relativePath)
     {
-        if (string.IsNullOrWhiteSpace(relativePath) || string.IsNullOrWhiteSpace(settings.SyncFolder)) return null;
+        if (string.IsNullOrWhiteSpace(relativePath)) return null;
         var normalized = relativePath.Replace('\\', '/').Trim('/');
         var parts = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries).ToList();
         if (parts.Count > 0 && string.Equals(parts[0], "My Files", StringComparison.OrdinalIgnoreCase))
             parts.RemoveAt(0);
 
-        var rootFull = NormalizePath(settings.SyncFolder);
-        var rootName = Path.GetFileName(rootFull.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        var start = parts.Count > 0 && string.Equals(parts[0], rootName, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
-        var candidate = NormalizePath(Path.Combine(new[] { rootFull }.Concat(parts.Skip(start)).ToArray()));
-        return IsPathWithinRoot(candidate, rootFull, allowRoot: true) ? candidate : null;
+        foreach (var root in GetConfiguredRoots(settings))
+        {
+            var rootFull = NormalizePath(root);
+            var rootName = GetTargetRelativeRoot(settings, rootFull);
+            var start = parts.Count > 0 && string.Equals(parts[0], rootName, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+            var candidate = NormalizePath(Path.Combine(new[] { rootFull }.Concat(parts.Skip(start)).ToArray()));
+            if (IsPathWithinRoot(candidate, rootFull, allowRoot: true)) return candidate;
+        }
+        return null;
     }
 
     private static bool IsJobInsideConfiguredRoot(SyncJob job, AppSettings settings)
     {
-        if (string.IsNullOrWhiteSpace(settings.SyncFolder) || string.IsNullOrWhiteSpace(job.FilePath)) return false;
-        var root = NormalizePath(settings.SyncFolder);
+        if (string.IsNullOrWhiteSpace(job.FilePath)) return false;
         var path = NormalizePath(job.FilePath);
-        if (!IsPathWithinRoot(path, root, allowRoot: true)) return false;
+        if (!GetConfiguredRoots(settings).Select(NormalizePath).Any(root => IsPathWithinRoot(path, root, allowRoot: true))) return false;
         var expectedRelative = BuildRelativePath(job.FilePath, settings);
         return expectedRelative is not null && string.Equals(expectedRelative, job.RelativePath.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase);
     }
