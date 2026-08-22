@@ -23,8 +23,9 @@ import DashboardShell from '../../components/dashboard-shell';
 import api from '../../lib/axios';
 import { fetchFolderContents } from '../../services/explorer';
 import type { FileItem } from '../../types/explorer';
+import { downloadWindowsClient } from '../../lib/download-client';
 
-const WINDOWS_CLIENT_DOWNLOAD_URL = 'https://files.manuscdn.com/user_upload_by_module/session_file/310519663906187068/HUIHFNNfbfCvXjmO.zip';
+const WINDOWS_CLIENT_DOWNLOAD_URL = 'https://github.com/bilanazhmii/SchoolDMS/raw/client-download/SchoolDMS-Sync-win-x64.zip';
 
 function unwrap<T>(body: unknown): T {
   if (
@@ -81,7 +82,15 @@ export default function Page() {
             <p className="text-sm text-foreground-muted mt-1">Here&apos;s what&apos;s happening with your documents.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <a href={WINDOWS_CLIENT_DOWNLOAD_URL} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground-muted hover:bg-surface-hover hover:text-foreground transition-colors">
+            <a
+              href={WINDOWS_CLIENT_DOWNLOAD_URL}
+              download="SchoolDMS-Sync-win-x64.zip"
+              onClick={(event) => {
+                event.preventDefault();
+                void downloadWindowsClient(WINDOWS_CLIENT_DOWNLOAD_URL).catch(() => undefined);
+              }}
+              className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground-muted hover:bg-surface-hover hover:text-foreground transition-colors"
+            >
               <Download className="h-4 w-4" />
               Download Windows Client
             </a>

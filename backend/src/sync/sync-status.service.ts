@@ -274,8 +274,15 @@ export class SyncStatusService {
     const synced = await this.prisma.syncJob.count({
       where: { session: { profileId }, status: 'SYNCED' },
     });
+    // Failed rows are an audit trail: a later retry may already have succeeded.
+    // The dashboard should not keep warning about an old failure forever.
+    const recentFailureSince = new Date(Date.now() - 15 * 60 * 1000);
     const failed = await this.prisma.syncJob.count({
-      where: { session: { profileId }, status: 'FAILED' },
+      where: {
+        session: { profileId },
+        status: 'FAILED',
+        createdAt: { gte: recentFailureSince },
+      },
     });
 
     const lastSyncJob = await this.prisma.syncJob.findFirst({

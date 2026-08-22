@@ -10,7 +10,10 @@ public interface ISyncQueue
     /// <summary>
     /// Enqueues a new sync job.
     /// </summary>
-    Task EnqueueAsync(SyncJob job, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Enqueues a job and returns false when an identical completed job already covers the same content.
+    /// </summary>
+    Task<bool> EnqueueAsync(SyncJob job, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Retrieves the next eligible job to process.

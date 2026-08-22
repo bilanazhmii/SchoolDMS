@@ -5,8 +5,9 @@ import { useQuery } from '@tanstack/react-query';
 import { CheckCircle2, Computer, Download, Folder, FolderSync, HardDrive, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import DashboardShell from '../../components/dashboard-shell';
 import { getSyncStatus, type SyncDevice } from '../../services/sync';
+import { downloadWindowsClient } from '../../lib/download-client';
 
-const WINDOWS_CLIENT_DOWNLOAD_URL = 'https://files.manuscdn.com/user_upload_by_module/session_file/310519663906187068/HUIHFNNfbfCvXjmO.zip';
+const WINDOWS_CLIENT_DOWNLOAD_URL = 'https://github.com/bilanazhmii/SchoolDMS/raw/client-download/SchoolDMS-Sync-win-x64.zip';
 
 function formatDate(value: string | null) {
   if (!value) return 'Never connected';
@@ -72,7 +73,17 @@ export default function SyncPage() {
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div><div className="mb-2 inline-flex items-center gap-2 text-sm font-medium text-primary"><FolderSync className="h-4 w-4" />Computers</div><h1 className="text-2xl font-semibold tracking-tight text-foreground">Your synced computers</h1><p className="mt-1 max-w-2xl text-sm text-foreground-muted">Each Windows computer has its own identity and target folders. A computer being offline never removes its cloud files.</p></div>
           <div className="flex flex-wrap items-center gap-2">
-            <a href={WINDOWS_CLIENT_DOWNLOAD_URL} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover"><Download className="h-4 w-4" />Download Windows Client</a>
+            <a
+              href={WINDOWS_CLIENT_DOWNLOAD_URL}
+              download="SchoolDMS-Sync-win-x64.zip"
+              onClick={(event) => {
+                event.preventDefault();
+                void downloadWindowsClient(WINDOWS_CLIENT_DOWNLOAD_URL).catch(() => undefined);
+              }}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover"
+            >
+              <Download className="h-4 w-4" />Download Windows Client
+            </a>
             <button type="button" onClick={() => void query.refetch()} disabled={query.isFetching} className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground-muted hover:bg-surface-hover disabled:opacity-50"><RefreshCw className={query.isFetching ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />Refresh</button>
           </div>
         </div>

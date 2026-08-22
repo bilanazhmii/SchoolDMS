@@ -236,33 +236,45 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
         var folderPaths = new[] { requestedRoot }.Concat(directories).ToArray();
 
 
-        var queued = 0;
+                var queued = 0;
+        var skipped = 0;
 
         // Folder creation is queued as a durable job. A one-shot HTTP call here
         // could be lost during a transient network/API failure, leaving files
-        // only partially synchronized.
+        // only partially synchronized. Completed, unchanged jobs are skipped by
+        // the queue so watcher rescans do not create another full batch.
         foreach (var directory in folderPaths)
         {
-            await QueueFolderChangeAsync(directory, SyncOperationType.Create, cancellationToken: cancellationToken);
+            var relative = BuildRelativePath(directory, settings);
+            if (relative is null) continue;
+            var folderJob = new SyncJob
+            {
+                FilePath = directory,
+                RelativePath = relative,
+                Operation = SyncOperationType.Create,
+                Payload = JsonSerializer.Serialize(new { folder = true }),
+                NextAttemptAt = DateTimeOffset.UtcNow
+            };
+            if (await _queue.EnqueueAsync(folderJob, cancellationToken)) queued++;
+            else skipped++;
         }
 
         foreach (var file in files)
         {
-                        var relative = BuildRelativePath(file, settings);
+            var relative = BuildRelativePath(file, settings);
             if (relative is null) continue;
             var job = new SyncJob
             {
                 FilePath = file,
                 RelativePath = relative,
-
                 Operation = SyncOperationType.Create,
                 NextAttemptAt = DateTimeOffset.UtcNow
             };
-            await _queue.EnqueueAsync(job, cancellationToken);
-            queued++;
+            if (await _queue.EnqueueAsync(job, cancellationToken)) queued++;
+            else skipped++;
         }
 
-        _logger.LogInformation("Initial folder sync queued {Count} files and {FolderCount} folder jobs from {Root}", queued, folderPaths.Length, rootPath);
+        _logger.LogInformation("Folder sync inspected {FileCount} files and {FolderCount} folders; queued {QueuedCount}, skipped {SkippedCount} unchanged jobs from {Root}", files.Length, folderPaths.Length, queued, skipped, rootPath);
     }
 
     /// <summary>

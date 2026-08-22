@@ -23,7 +23,7 @@ public sealed class JsonSyncQueue : ISyncQueue
     }
 
     /// <inheritdoc />
-    public async Task EnqueueAsync(SyncJob job, CancellationToken cancellationToken = default)
+    public async Task<bool> EnqueueAsync(SyncJob job, CancellationToken cancellationToken = default)
     {
         List<SyncJob> jobs;
         if (File.Exists(_filePath))
@@ -38,6 +38,7 @@ public sealed class JsonSyncQueue : ISyncQueue
 
         jobs.Add(job);
         await SaveAsync(jobs, cancellationToken);
+        return true;
     }
 
     /// <inheritdoc />

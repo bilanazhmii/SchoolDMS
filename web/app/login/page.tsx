@@ -12,6 +12,7 @@ import { Download, Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../providers/auth-provider';
 import { getAuthRedirectUrl } from '../../lib/auth-url';
+import { downloadWindowsClient } from '../../lib/download-client';
 
 const loginSchema = z.object({
   email: z.string().email('Masukkan email yang sah'),
@@ -29,7 +30,7 @@ type RegisterData = z.infer<typeof registerSchema>;
 
 type Mode = 'login' | 'register';
 
-const WINDOWS_CLIENT_DOWNLOAD_URL = 'https://files.manuscdn.com/user_upload_by_module/session_file/310519663906187068/HUIHFNNfbfCvXjmO.zip';
+const WINDOWS_CLIENT_DOWNLOAD_URL = 'https://github.com/bilanazhmii/SchoolDMS/raw/client-download/SchoolDMS-Sync-win-x64.zip';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -313,8 +314,11 @@ export default function LoginPage() {
 
         <a
           href={WINDOWS_CLIENT_DOWNLOAD_URL}
-          target="_blank"
-          rel="noreferrer"
+          download="SchoolDMS-Sync-win-x64.zip"
+          onClick={(event) => {
+            event.preventDefault();
+            void downloadWindowsClient(WINDOWS_CLIENT_DOWNLOAD_URL).catch(() => undefined);
+          }}
           className="mt-5 flex items-center justify-center gap-2 rounded-md border border-border bg-card px-3 py-2.5 text-sm font-medium text-foreground-muted transition-colors hover:bg-surface-hover hover:text-foreground"
         >
           <Download className="h-4 w-4" />

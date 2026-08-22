@@ -40,19 +40,24 @@ public sealed class SqliteSyncQueue : ISyncQueue, IAsyncDisposable
     }
 
     /// <inheritdoc />
-    public async Task EnqueueAsync(SyncJob job, CancellationToken cancellationToken = default)
+    public async Task<bool> EnqueueAsync(SyncJob job, CancellationToken cancellationToken = default)
     {
         if (ShouldIgnore(job.FilePath))
         {
-            return;
+            return false;
         }
 
         await _gate.WaitAsync(cancellationToken);
         try
         {
             PopulateMetadata(job);
-            await EnsureDeduplicationAsync(job, cancellationToken);
+            if (!await EnsureDeduplicationAsync(job, cancellationToken))
+            {
+                return false;
+            }
+
             await PersistJobAsync(job, cancellationToken);
+            return true;
         }
         finally
         {
@@ -234,7 +239,7 @@ public sealed class SqliteSyncQueue : ISyncQueue, IAsyncDisposable
         await transaction.CommitAsync(cancellationToken);
     }
 
-    private async Task EnsureDeduplicationAsync(SyncJob incomingJob, CancellationToken cancellationToken)
+    private async Task<bool> EnsureDeduplicationAsync(SyncJob incomingJob, CancellationToken cancellationToken)
     {
         await using var connection = CreateConnection();
         await connection.OpenAsync(cancellationToken);
@@ -245,24 +250,35 @@ public sealed class SqliteSyncQueue : ISyncQueue, IAsyncDisposable
             if (existing is not null && existing.Operation == SyncOperationType.Create)
             {
                 await RemoveJobAsync(connection, existing.Id, cancellationToken);
-                return;
+                return false;
             }
         }
 
-        if (incomingJob.Operation == SyncOperationType.Create || incomingJob.Operation == SyncOperationType.Update)
+        if (incomingJob.Operation is SyncOperationType.Create or SyncOperationType.Update)
         {
             var existing = await FindLatestPendingJobAsync(connection, incomingJob.FilePath, cancellationToken);
             if (existing is not null &&
-                (existing.Operation == SyncOperationType.Create || existing.Operation == SyncOperationType.Update) &&
+                (existing.Operation is SyncOperationType.Create or SyncOperationType.Update) &&
                 IsFolderPayload(existing.Payload) == IsFolderPayload(incomingJob.Payload))
             {
                 incomingJob.Id = existing.Id;
                 incomingJob.Status = existing.Status;
                 incomingJob.CreatedAt = existing.CreatedAt;
                 incomingJob.UpdatedAt = DateTimeOffset.UtcNow;
-                return;
+                return true;
+            }
+
+            var completed = await FindLatestCompletedJobAsync(connection, incomingJob, cancellationToken);
+            if (completed is not null &&
+                string.Equals(completed.Sha256Hash, incomingJob.Sha256Hash, StringComparison.OrdinalIgnoreCase) &&
+                completed.FileSize == incomingJob.FileSize &&
+                IsFolderPayload(completed.Payload) == IsFolderPayload(incomingJob.Payload))
+            {
+                return false;
             }
         }
+
+        return true;
     }
 
     private async Task<SyncJob?> FindLatestPendingJobAsync(SQLiteConnection connection, string filePath, CancellationToken cancellationToken)
@@ -277,6 +293,28 @@ public sealed class SqliteSyncQueue : ISyncQueue, IAsyncDisposable
         command.Parameters.AddWithValue("@filePath", filePath);
         command.Parameters.AddWithValue("@pending", (int)SyncJobStatus.Pending);
         command.Parameters.AddWithValue("@processing", (int)SyncJobStatus.Processing);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken) ? MapReader(reader) : null;
+    }
+
+    private async Task<SyncJob?> FindLatestCompletedJobAsync(SQLiteConnection connection, SyncJob incomingJob, CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = @"
+            SELECT Id, FilePath, RelativePath, Operation, Sha256Hash, FileSize, RetryCount, Priority, Status, NextAttemptAt, LastError, CreatedAt, UpdatedAt, Payload
+            FROM SyncJobs
+            WHERE FilePath = @filePath
+              AND RelativePath = @relativePath
+              AND Operation IN (@create, @update)
+              AND Status = @completed
+            ORDER BY UpdatedAt DESC
+            LIMIT 1;";
+        command.Parameters.AddWithValue("@filePath", incomingJob.FilePath);
+        command.Parameters.AddWithValue("@relativePath", incomingJob.RelativePath);
+        command.Parameters.AddWithValue("@create", (int)SyncOperationType.Create);
+        command.Parameters.AddWithValue("@update", (int)SyncOperationType.Update);
+        command.Parameters.AddWithValue("@completed", (int)SyncJobStatus.Completed);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken) ? MapReader(reader) : null;
