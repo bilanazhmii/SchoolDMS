@@ -8,6 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import {
   Cloud,
+  Download,
   FileText,
   Folder,
   HardDrive,
@@ -22,6 +23,8 @@ import DashboardShell from '../../components/dashboard-shell';
 import api from '../../lib/axios';
 import { fetchFolderContents } from '../../services/explorer';
 import type { FileItem } from '../../types/explorer';
+
+const WINDOWS_CLIENT_DOWNLOAD_URL = 'https://files.manuscdn.com/user_upload_by_module/session_file/310519663906187068/HUIHFNNfbfCvXjmO.zip';
 
 function unwrap<T>(body: unknown): T {
   if (
@@ -77,7 +80,11 @@ export default function Page() {
             <h1 className="text-2xl font-semibold text-foreground">Welcome back</h1>
             <p className="text-sm text-foreground-muted mt-1">Here&apos;s what&apos;s happening with your documents.</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <a href={WINDOWS_CLIENT_DOWNLOAD_URL} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground-muted hover:bg-surface-hover hover:text-foreground transition-colors">
+              <Download className="h-4 w-4" />
+              Download Windows Client
+            </a>
             <Link
               href="/explorer"
               className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover transition-colors"

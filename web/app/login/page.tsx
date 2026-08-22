@@ -29,7 +29,7 @@ type RegisterData = z.infer<typeof registerSchema>;
 
 type Mode = 'login' | 'register';
 
-const WINDOWS_CLIENT_DOWNLOAD_URL = 'https://files.manuscdn.com/user_upload_by_module/session_file/310519663906187068/AmlDhQsyJPpsrMtV.zip';
+const WINDOWS_CLIENT_DOWNLOAD_URL = 'https://files.manuscdn.com/user_upload_by_module/session_file/310519663906187068/HUIHFNNfbfCvXjmO.zip';
 
 export default function LoginPage() {
   const router = useRouter();

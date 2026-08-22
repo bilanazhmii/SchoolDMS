@@ -6,7 +6,7 @@ import { CheckCircle2, Computer, Download, Folder, FolderSync, HardDrive, Refres
 import DashboardShell from '../../components/dashboard-shell';
 import { getSyncStatus, type SyncDevice } from '../../services/sync';
 
-const WINDOWS_CLIENT_DOWNLOAD_URL = 'https://files.manuscdn.com/user_upload_by_module/session_file/310519663906187068/AmlDhQsyJPpsrMtV.zip';
+const WINDOWS_CLIENT_DOWNLOAD_URL = 'https://files.manuscdn.com/user_upload_by_module/session_file/310519663906187068/HUIHFNNfbfCvXjmO.zip';
 
 function formatDate(value: string | null) {
   if (!value) return 'Never connected';

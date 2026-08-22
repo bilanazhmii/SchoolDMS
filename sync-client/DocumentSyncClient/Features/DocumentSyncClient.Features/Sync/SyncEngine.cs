@@ -344,16 +344,24 @@ public sealed class SyncEngine : ISyncEngine, IAsyncDisposable
 
                 cancellationToken);
 
-            if (response.IsSuccessStatusCode)
+            if (!response.IsSuccessStatusCode)
             {
-                var body = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: cancellationToken);
-                if (body.TryGetProperty("data", out var data) &&
-                    data.TryGetProperty("sessionId", out var sessionId) &&
-                    sessionId.ValueKind == JsonValueKind.String)
-                {
-                    SessionId = sessionId.GetString();
-                    _logger.LogInformation("Device registered with backend (session {SessionId})", SessionId);
-                }
+                var detail = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogWarning("Device heartbeat rejected by backend ({StatusCode}): {Detail}", response.StatusCode, detail);
+                return;
+            }
+
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: cancellationToken);
+            if (body.TryGetProperty("data", out var data) &&
+                data.TryGetProperty("sessionId", out var sessionId) &&
+                sessionId.ValueKind == JsonValueKind.String)
+            {
+                SessionId = sessionId.GetString();
+                _logger.LogInformation("Device registered with backend (session {SessionId})", SessionId);
+            }
+            else
+            {
+                _logger.LogWarning("Device heartbeat succeeded but backend returned no session ID.");
             }
         }
                 catch (Exception ex)
