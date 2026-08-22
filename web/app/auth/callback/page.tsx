@@ -41,7 +41,7 @@ export default function AuthCallbackPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ access_token: data.session.access_token, refresh_token: data.session.refresh_token, expires_in: data.session.expires_in }),
         });
-        if (!cancelled) router.replace('/');
+        if (!cancelled) router.replace('/dashboard');
         return;
       }
 
@@ -56,7 +56,7 @@ export default function AuthCallbackPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ access_token: data.session.access_token, refresh_token: data.session.refresh_token, expires_in: data.session.expires_in }),
         });
-        if (!cancelled) router.replace('/');
+        if (!cancelled) router.replace('/dashboard');
         return;
       }
 
@@ -73,7 +73,7 @@ export default function AuthCallbackPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ access_token: data.session.access_token, refresh_token: data.session.refresh_token, expires_in: data.session.expires_in }),
         });
-        if (!cancelled) router.replace('/');
+        if (!cancelled) router.replace('/dashboard');
         return;
       }
 

@@ -2,9 +2,11 @@
 
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { CheckCircle2, Computer, Folder, FolderSync, HardDrive, RefreshCw, Wifi, WifiOff } from 'lucide-react';
+import { CheckCircle2, Computer, Download, Folder, FolderSync, HardDrive, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import DashboardShell from '../../components/dashboard-shell';
 import { getSyncStatus, type SyncDevice } from '../../services/sync';
+
+const WINDOWS_CLIENT_DOWNLOAD_URL = 'https://files.manuscdn.com/user_upload_by_module/session_file/310519663906187068/AmlDhQsyJPpsrMtV.zip';
 
 function formatDate(value: string | null) {
   if (!value) return 'Never connected';
@@ -69,7 +71,10 @@ export default function SyncPage() {
       <div className="mx-auto w-full max-w-5xl space-y-6">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div><div className="mb-2 inline-flex items-center gap-2 text-sm font-medium text-primary"><FolderSync className="h-4 w-4" />Computers</div><h1 className="text-2xl font-semibold tracking-tight text-foreground">Your synced computers</h1><p className="mt-1 max-w-2xl text-sm text-foreground-muted">Each Windows computer has its own identity and target folders. A computer being offline never removes its cloud files.</p></div>
-          <button type="button" onClick={() => void query.refetch()} disabled={query.isFetching} className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground-muted hover:bg-surface-hover disabled:opacity-50"><RefreshCw className={query.isFetching ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />Refresh</button>
+          <div className="flex flex-wrap items-center gap-2">
+            <a href={WINDOWS_CLIENT_DOWNLOAD_URL} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover"><Download className="h-4 w-4" />Download Windows Client</a>
+            <button type="button" onClick={() => void query.refetch()} disabled={query.isFetching} className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground-muted hover:bg-surface-hover disabled:opacity-50"><RefreshCw className={query.isFetching ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />Refresh</button>
+          </div>
         </div>
 
         {query.isLoading ? <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-foreground-muted">Loading computer status…</div> : query.isError ? <div className="rounded-xl border border-danger/30 bg-danger/5 p-5 text-sm text-danger">Unable to load computer status. Make sure the backend is deployed and your session is active.</div> : data && (
@@ -79,7 +84,7 @@ export default function SyncPage() {
               <div className="rounded-xl border border-border bg-card p-4"><div className="text-xs text-foreground-muted">Registered computers</div><div className="mt-1 text-2xl font-semibold text-foreground">{data.devices.length}</div></div>
               <div className="rounded-xl border border-border bg-card p-4"><div className="text-xs text-foreground-muted">Last successful sync</div><div className="mt-1 truncate text-sm font-semibold text-foreground">{formatDate(data.lastSyncAt)}</div></div>
             </div>
-            {data.devices.length ? <div className="grid gap-5 lg:grid-cols-2">{data.devices.map((device) => <DeviceCard key={device.id} device={device} />)}</div> : <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center"><CheckCircle2 className="mx-auto h-8 w-8 text-foreground-faint" /><h2 className="mt-3 font-medium text-foreground">No computer has connected yet</h2><p className="mx-auto mt-1 max-w-md text-sm text-foreground-muted">Install the Windows Sync Client, sign in with this account, and choose one or more target folders.</p><Link href="/explorer" className="mt-4 inline-flex rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">Open files</Link></div>}
+            {data.devices.length ? <div className="grid gap-5 lg:grid-cols-2">{data.devices.map((device) => <DeviceCard key={device.id} device={device} />)}</div> : <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center"><CheckCircle2 className="mx-auto h-8 w-8 text-foreground-faint" /><h2 className="mt-3 font-medium text-foreground">No computer has connected yet</h2><p className="mx-auto mt-1 max-w-md text-sm text-foreground-muted">Download the Windows Sync Client, sign in with this account, and choose one or more target folders.</p><Link href="/explorer" className="mt-4 inline-flex rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">Open files</Link></div>}
           </>
         )}
       </div>

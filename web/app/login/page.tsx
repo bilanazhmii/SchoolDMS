@@ -7,7 +7,7 @@ import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react';
+import { Download, Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react';
 
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../providers/auth-provider';
@@ -28,6 +28,8 @@ type LoginData = z.infer<typeof loginSchema>;
 type RegisterData = z.infer<typeof registerSchema>;
 
 type Mode = 'login' | 'register';
+
+const WINDOWS_CLIENT_DOWNLOAD_URL = 'https://files.manuscdn.com/user_upload_by_module/session_file/310519663906187068/AmlDhQsyJPpsrMtV.zip';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -55,7 +57,7 @@ export default function LoginPage() {
     (async () => {
       if (!supabase) return;
       const { data } = await supabase.auth.getSession();
-      if (data.session) router.replace('/');
+      if (data.session) router.replace('/dashboard');
     })();
   }, [supabase, router]);
 
@@ -89,7 +91,7 @@ export default function LoginPage() {
           expires_in: res.data.session.expires_in,
         });
       }
-      router.replace('/');
+      router.replace('/dashboard');
     } finally {
       setLoading(false);
     }
@@ -120,7 +122,7 @@ export default function LoginPage() {
           refresh_token: res.data.session.refresh_token,
           expires_in: res.data.session.expires_in,
         });
-        router.replace('/');
+        router.replace('/dashboard');
       } else {
         setSuccess('Pendaftaran berhasil! Silakan cek email Anda untuk konfirmasi. Setelah verifikasi, Anda dapat login.');
       }
@@ -308,6 +310,17 @@ export default function LoginPage() {
             </form>
           )}
         </div>
+
+        <a
+          href={WINDOWS_CLIENT_DOWNLOAD_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-5 flex items-center justify-center gap-2 rounded-md border border-border bg-card px-3 py-2.5 text-sm font-medium text-foreground-muted transition-colors hover:bg-surface-hover hover:text-foreground"
+        >
+          <Download className="h-4 w-4" />
+          Unduh Windows Sync Client
+          <span className="text-2xs text-foreground-faint">(ZIP)</span>
+        </a>
 
         <p className="text-center text-2xs text-foreground-faint mt-6">
           © {new Date().getFullYear()} SchoolDMS — Sistem Manajemen Dokumen Sekolah
