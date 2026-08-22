@@ -74,16 +74,44 @@ function FileIcon({ mime }: { mime: string }) {
   return <FileText className="h-5 w-5 text-foreground-muted" />;
 }
 
+function effectiveMimeType(name: string, mimeType: string | null | undefined) {
+  const declared = mimeType?.trim();
+  if (declared && declared !== 'application/octet-stream' && declared !== 'binary/octet-stream') return declared;
+  const extension = name.toLowerCase().split('.').pop() ?? '';
+  const byExtension: Record<string, string> = {
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', svg: 'image/svg+xml',
+    mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', m4v: 'video/x-m4v',
+    mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4', flac: 'audio/flac',
+    pdf: 'application/pdf', txt: 'text/plain', csv: 'text/csv', json: 'application/json', xml: 'application/xml', md: 'text/markdown',
+    html: 'text/html', htm: 'text/html', js: 'text/javascript', ts: 'text/typescript',
+  };
+  return byExtension[extension] ?? declared ?? 'application/octet-stream';
+}
+
 function isTextLike(mime: string) {
   return mime.startsWith('text/') || /json|xml|javascript|typescript|csv|markdown/.test(mime);
 }
 
-function InlinePreview({ url, name, mime, onImageClick }: { url: string; name: string; mime: string; onImageClick?: () => void }) {
+function TextInlinePreview({ token, fileId }: { token: string; fileId?: string }) {
+  const [content, setContent] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    let active = true;
+    fetchSharedText(token, fileId).then((value) => { if (active) setContent(value); }).catch(() => { if (active) setError(true); });
+    return () => { active = false; };
+  }, [token, fileId]);
+  if (error) return <div className="mb-5 rounded-lg border border-dashed border-border bg-surface-active px-4 py-6 text-center text-sm text-foreground-muted">Isi teks tidak dapat dimuat. Gunakan tombol Buka atau Unduh.</div>;
+  if (content === null) return <div className="mb-5 rounded-lg border border-border bg-surface-active px-4 py-6 text-center text-sm text-foreground-muted">Memuat isi file…</div>;
+  return <pre className="mb-5 max-h-[32rem] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-active p-4 font-mono text-xs leading-5 text-foreground">{content}</pre>;
+}
+
+function InlinePreview({ url, name, mime, token, fileId, onImageClick }: { url: string; name: string; mime: string; token: string; fileId?: string; onImageClick?: () => void }) {
   if (mime.startsWith('image/')) return <button type="button" onClick={onImageClick} className="mb-5 block w-full cursor-zoom-in rounded-lg border border-border bg-black/5 p-2"><img src={url} alt={name} className="max-h-[30rem] w-full rounded object-contain" /></button>;
   if (mime.startsWith('video/')) return <video src={url} controls className="mb-5 max-h-[30rem] w-full rounded-lg bg-black" />;
   if (mime.startsWith('audio/')) return <audio src={url} controls className="mb-5 w-full" />;
   if (mime === 'application/pdf') return <iframe src={url} title={name} className="mb-5 h-[32rem] w-full rounded-lg border border-border" />;
-  return <div className="mb-5 rounded-lg border border-dashed border-border bg-surface-active px-4 py-6 text-center text-sm text-foreground-muted">Preview inline belum tersedia untuk format ini. Gunakan tombol Buka atau Unduh sesuai izin link.</div>;
+  if (isTextLike(mime)) return <TextInlinePreview token={token} fileId={fileId} />;
+  return <div className="mb-5 rounded-lg border border-dashed border-border bg-surface-active px-4 py-6 text-center text-sm text-foreground-muted">Format {mime} tidak dapat dipreview langsung di browser. Gunakan tombol Buka atau Unduh sesuai izin link.</div>;
 }
 
 function FileView({ data, token }: { data: PublicShareFile; token: string }) {
@@ -91,7 +119,7 @@ function FileView({ data, token }: { data: PublicShareFile; token: string }) {
   const [text, setText] = useState('');
   const [editLoading, setEditLoading] = useState(false);
   const [editMessage, setEditMessage] = useState<string | null>(null);
-  const mime = data.file.mimeType ?? 'application/octet-stream';
+  const mime = effectiveMimeType(data.file.name, data.file.mimeType);
   const editable = data.permission === 'EDIT' && isTextLike(mime);
   const canDownload = data.permission === 'DOWNLOAD' || data.permission === 'EDIT';
   const previewUrl = sharePreviewUrl(token);
@@ -122,7 +150,7 @@ function FileView({ data, token }: { data: PublicShareFile; token: string }) {
         <div className="min-w-0"><h1 className="truncate text-lg font-semibold text-foreground">{data.file.name}</h1><p className="mt-1 text-xs text-foreground-muted">{mime} · {formatBytes(data.file.size)}</p>{data.description && <p className="mt-2 text-sm text-foreground-muted">{data.description}</p>}</div>
       </div>
 
-      <InlinePreview url={previewUrl} name={data.file.name} mime={mime} onImageClick={() => setFullView(true)} />
+      <InlinePreview url={previewUrl} name={data.file.name} mime={mime} token={token} onImageClick={() => setFullView(true)} />
 
       {editable && <div className="mb-5 rounded-lg border border-border p-4"><div className="mb-2 text-sm font-semibold">Edit file</div><textarea value={text} onChange={(event) => setText(event.target.value)} className="min-h-56 w-full rounded border border-border bg-surface px-3 py-2 font-mono text-xs" /><button type="button" onClick={save} disabled={editLoading} className="mt-2 rounded bg-primary px-3 py-1.5 text-xs text-primary-foreground disabled:opacity-50">{editLoading ? 'Menyimpan…' : 'Simpan perubahan'}</button>{editMessage && <div className="mt-2 text-xs text-foreground-muted">{editMessage}</div>}</div>}
 
@@ -139,7 +167,7 @@ function FileView({ data, token }: { data: PublicShareFile; token: string }) {
 }
 
 function FolderFileRow({ token, permission, item }: { token: string; permission: PublicShareFolder['permission']; item: PublicShareFolder['folder']['items'][number] }) {
-  const mime = item.mimeType ?? 'application/octet-stream';
+  const mime = effectiveMimeType(item.name, item.mimeType);
   const canDownload = permission === 'DOWNLOAD' || permission === 'EDIT';
   const canEdit = permission === 'EDIT' && isTextLike(mime);
   const previewUrl = sharePreviewUrl(token, item.id);
@@ -167,7 +195,7 @@ function FolderFileRow({ token, permission, item }: { token: string; permission:
   return (
     <article className="rounded-lg border border-border p-4">
       <div className="flex items-start gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-surface-active"><FileIcon mime={mime} /></div><div className="min-w-0 flex-1"><div className="truncate text-sm font-medium text-foreground">{item.name}</div><div className="mt-1 truncate text-xs text-foreground-muted">{mime} · {formatBytes(item.size)}</div></div></div>
-      <InlinePreview url={previewUrl} name={item.name} mime={mime} />
+      <InlinePreview url={previewUrl} name={item.name} mime={mime} token={token} fileId={item.id} />
       {editing && canEdit && <div className="mb-3 rounded border border-border p-3"><textarea value={text} onChange={(event) => setText(event.target.value)} className="min-h-40 w-full rounded border border-border bg-surface px-3 py-2 font-mono text-xs" /><button type="button" onClick={save} disabled={saving} className="mt-2 rounded bg-primary px-3 py-1.5 text-xs text-primary-foreground disabled:opacity-50">{saving ? 'Menyimpan…' : 'Simpan perubahan'}</button></div>}
       {message && <div className="mb-3 text-xs text-foreground-muted">{message}</div>}
       <div className="flex flex-wrap gap-2"><a href={previewUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-surface-hover"><ExternalLink className="h-3.5 w-3.5" />Buka</a>{canEdit && <button type="button" onClick={() => void beginEdit()} className="inline-flex items-center gap-1.5 rounded border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-surface-hover">Edit</button>}{canDownload && <a href={shareDownloadUrl(token, item.id)} className="inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary-hover"><Download className="h-3.5 w-3.5" />Unduh</a>}</div>

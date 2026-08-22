@@ -183,6 +183,24 @@ export class SharingService {
     return normalized === '/' ? normalized : normalized.replace(/\/$/, '');
   }
 
+  private effectiveMimeType(name: string, mimeType: string | null | undefined, versionMimeType?: string | null) {
+    const declared = versionMimeType?.trim() || mimeType?.trim();
+    if (declared && declared !== 'application/octet-stream' && declared !== 'binary/octet-stream') return declared;
+    const extension = name.toLowerCase().split('.').pop() ?? '';
+    const byExtension: Record<string, string> = {
+      jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', svg: 'image/svg+xml',
+      mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', m4v: 'video/x-m4v',
+      mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4', flac: 'audio/flac',
+      pdf: 'application/pdf', txt: 'text/plain', csv: 'text/csv', json: 'application/json', xml: 'application/xml', md: 'text/markdown',
+      html: 'text/html', htm: 'text/html', js: 'text/javascript', ts: 'text/typescript',
+      doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      zip: 'application/zip', rar: 'application/vnd.rar', '7z': 'application/x-7z-compressed',
+    };
+    return byExtension[extension] ?? declared ?? 'application/octet-stream';
+  }
+
   private isDirectChildPath(parentPath: string, childPath: string) {
     const parent = this.normalizeRelativePath(parentPath);
     const child = this.normalizeRelativePath(childPath);
@@ -329,7 +347,14 @@ export class SharingService {
     });
     if (!latestVersion?.storagePath) throw new NotFoundException('File version not found');
     const buffer = await this.storage.download(latestVersion.storagePath);
-    res.setHeader('Content-Type', file.mimeType || 'application/octet-stream');
+    const contentType = this.effectiveMimeType(file.name, file.mimeType, latestVersion.mimeType);
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    // Helmet's default SAMEORIGIN/frame-ancestors would block the PDF iframe on
+    // the separate Vercel frontend. This remains restricted to our public web
+    // origin (and localhost for local development), not arbitrary websites.
+    res.removeHeader('X-Frame-Options');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors https://school-dms.vercel.app http://localhost:3000;");
     res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.name)}"`);
     res.setHeader('Content-Length', buffer.length.toString());
     res.send(buffer);
@@ -370,7 +395,7 @@ export class SharingService {
     });
 
     const fileName = encodeURIComponent(file.name);
-    res.setHeader('Content-Type', file.mimeType);
+    res.setHeader('Content-Type', this.effectiveMimeType(file.name, file.mimeType, latestVersion.mimeType));
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="${fileName}"`,
