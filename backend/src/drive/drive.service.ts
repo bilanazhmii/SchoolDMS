@@ -293,10 +293,30 @@ export class DriveService implements OnModuleInit {
       const googleId = userinfo.data.id ?? '';
       const email = userinfo.data.email ?? '';
 
-      // create or update DriveAccount (match by profileId)
+      // Create or update DriveAccount (match by profileId). If the user
+      // reconnects a different Google account, existing Drive IDs belong to
+      // the old account and must not be reused by the new account.
       const existing = await this.prisma.driveAccount.findFirst({
         where: { profileId: profile.id },
       });
+      const accountChanged = Boolean(
+        existing &&
+        existing.googleUserId &&
+        !existing.googleUserId.startsWith('pending-') &&
+        existing.googleUserId !== googleId,
+      );
+      if (accountChanged) {
+        await this.prisma.$transaction([
+          this.prisma.file.updateMany({
+            where: { ownerId: profile.id },
+            data: { googleDriveFileId: null, syncStatus: 'PENDING', lastSyncedAt: null },
+          }),
+          this.prisma.folder.updateMany({
+            where: { ownerId: profile.id },
+            data: { googleDriveFolderId: null, syncStatus: 'PENDING', lastSyncedAt: null },
+          }),
+        ]);
+      }
       if (existing) {
         await this.prisma.driveAccount.update({
           where: { id: existing.id },
@@ -304,6 +324,8 @@ export class DriveService implements OnModuleInit {
             googleUserId: googleId,
             email,
             refreshToken: encrypted,
+            rootFolderId: accountChanged ? null : existing.rootFolderId,
+            driveStartPageToken: accountChanged ? null : existing.driveStartPageToken,
             connectedAt: new Date(),
             connectionStatus: 'CONNECTED',
           },
@@ -519,10 +541,23 @@ export class DriveService implements OnModuleInit {
     const oauth2 = this.createOAuthClient();
     oauth2.setCredentials({ access_token: token });
     const drive = google.drive({ version: 'v3', auth: oauth2 });
+
+    // Read first so an already-trashed item is treated as synchronized. The
+    // supportsAllDrives flag is required when the item is in a Shared Drive.
+    const current = await drive.files.get({
+      fileId: googleDriveFileId,
+      fields: 'id, trashed, capabilities(canTrash), modifiedTime',
+      supportsAllDrives: true,
+    });
+    if (current.data.trashed === true) return current;
+    if (current.data.capabilities?.canTrash === false) {
+      throw new Error('Google Drive account cannot move this file to Trash');
+    }
     return drive.files.update({
       fileId: googleDriveFileId,
       requestBody: { trashed: true },
       fields: 'id, trashed, modifiedTime',
+      supportsAllDrives: true,
     });
   }
 

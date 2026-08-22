@@ -377,19 +377,26 @@ export class FileService {
       data: { deletedAt: new Date(), syncStatus: 'PENDING', lastSyncedAt: null },
     });
     const activeTrash = await this.prisma.trash.findFirst({ where: { profileId, fileId: id, restoredAt: null } });
-    if (!activeTrash) await this.prisma.trash.create({ data: { profileId, fileId: id, deletedAt: new Date() } });
+    if (!activeTrash) await this.prisma.trash.create({ data: { profileId, fileId: id, deletedAt: deleted.deletedAt ?? new Date() } });
     await this.audit.log(profileId, 'DELETE', 'FILE', id, { name: file.name });
+
+    let driveSynced = !file.googleDriveFileId;
     try {
       if (file.googleDriveFileId) {
         await this.drive.trashFileForProfile(profileId, file.googleDriveFileId);
+        driveSynced = true;
       }
     } catch (error) {
+      // Keep PENDING so a temporary Drive permission/outage issue can retry.
       this.logger.warn(`Google Drive trash failed for ${id}`, error as Error);
     }
+    const finalDeleted = driveSynced
+      ? await this.prisma.file.update({ where: { id }, data: { syncStatus: 'SYNCED', lastSyncedAt: new Date() } })
+      : deleted;
     await this.emitRemoteChange(profileId, { operation: SyncOperation.DELETE, fileId: file.id, relativePath: file.relativePath, name: file.name, sha256: file.sha256 });
     // Delete callers only need an acknowledgement. Returning a small DTO avoids
     // sending a Prisma row through Express serialization on a destructive path.
-    return { id: deleted.id, name: deleted.name, deletedAt: deleted.deletedAt };
+    return { id: finalDeleted.id, name: finalDeleted.name, deletedAt: finalDeleted.deletedAt };
   }
 
   async softDeleteMany(profileId: string, ids: string[]) {
@@ -438,9 +445,14 @@ export class FileService {
       if (file.googleDriveFileId) {
         try {
           await this.drive.trashFileForProfile(profileId, file.googleDriveFileId);
+          await this.prisma.file.update({ where: { id: file.id }, data: { syncStatus: 'SYNCED', lastSyncedAt: new Date() } });
         } catch (error) {
+          // Keep PENDING so the scheduler can retry after permissions or Drive
+          // availability are corrected.
           this.logger.warn(`Google Drive bulk trash failed for ${file.id}`, error as Error);
         }
+      } else {
+        await this.prisma.file.update({ where: { id: file.id }, data: { syncStatus: 'SYNCED', lastSyncedAt: new Date() } });
       }
     }
 

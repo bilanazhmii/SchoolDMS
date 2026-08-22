@@ -408,11 +408,21 @@ export class FolderService {
     await this.prisma.folder.updateMany({ where: { id: { in: descendants.map((child) => child.id) } }, data: { deletedAt, syncStatus: 'PENDING', lastSyncedAt: null } });
     await this.prisma.file.updateMany({ where: { id: { in: files.map((file) => file.id) } }, data: { deletedAt, syncStatus: 'PENDING', lastSyncedAt: null } });
     const deleted = await this.prisma.folder.findUnique({ where: { id } });
+    let driveSynced = !folder.googleDriveFolderId;
     if (folder.googleDriveFolderId) {
-      try { await this.drive.trashFileForProfile(profileId, folder.googleDriveFolderId); } catch (error) { /* retry through Drive reconciliation */ }
+      try {
+        await this.drive.trashFileForProfile(profileId, folder.googleDriveFolderId);
+        driveSynced = true;
+      } catch (error) {
+        // Keep PENDING so Drive reconciliation retries after permission or
+        // availability issues are corrected.
+      }
+    }
+    if (driveSynced) {
+      await this.prisma.folder.update({ where: { id }, data: { syncStatus: 'SYNCED', lastSyncedAt: new Date() } });
     }
     const activeTrash = await this.prisma.trash.findFirst({ where: { profileId, folderId: id, restoredAt: null } });
-    if (!activeTrash) await this.prisma.trash.create({ data: { profileId, folderId: id, deletedAt: new Date() } });
+    if (!activeTrash) await this.prisma.trash.create({ data: { profileId, folderId: id, deletedAt: deletedAt } });
     await this.audit.log(profileId, 'DELETE', 'FOLDER', id, {
       name: folder.name,
     });
